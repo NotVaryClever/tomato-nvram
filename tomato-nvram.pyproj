@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>9a97d858-f246-437e-bca8-5337449d4062</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>tomato_nvram.py</StartupFile>
+    <StartupFile>tomato-nvram.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -21,7 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="tomato_nvram.py" />
+    <Compile Include="tomato-nvram.py" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="config.ini" />
