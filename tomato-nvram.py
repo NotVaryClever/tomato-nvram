@@ -12,8 +12,6 @@ import tarfile
 ignore_names = re.compile(r'''
 http_id         # HTTP ID
 |https_crt_file # HTTP Certificate
-|sshd_\w+key    # SSH Key
-|\w+_hwaddr     # Hardware Address
 |\w+_cache      # Cache
 ''', re.VERBOSE)
 
