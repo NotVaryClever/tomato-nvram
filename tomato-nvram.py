@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import base64
 import configparser
 import io
@@ -18,13 +19,13 @@ http_id         # HTTP ID
 
 # Format of items in nvram.txt
 nvram_txt_pattern = re.compile(r'''
-(?P<name>[a-z0-9_.:/]+)  # Name
-=                   # Equals
-(?P<value>.*?)      # Value
-\n(?=               # Followed by
-[a-z0-9_.:/]+=      # Next stanza
-|---\n              # Or prelude on MIPS
-|$)                 # Or end of file
+(?P<name>[a-z0-9_.:/]+) # Name
+=                       # Equals
+(?P<value>.*?)          # Value
+\n(?=                   # Followed by
+[a-z0-9_.:/]+=          # Next stanza
+|---\n                  # Or prelude on MIPS
+|$)                     # Or end of file
 ''', re.DOTALL | re.VERBOSE)
 
 # Multiline characters
@@ -40,15 +41,30 @@ def parse_nvram_txt(nvram_txt):
         line
         value3
 
-    Return a dictionary of name-value pairs.
+    Return a set of name-value tuples.
     '''
-    return dict(nvram_txt_pattern.findall(nvram_txt))
+    return set(match.groups() for match in nvram_txt_pattern.finditer(nvram_txt))
+
+def diff_files(input_name, base_name):
+    '''
+    Return a set of items in input_name but not base_name.
+    '''
+    with open(input_name) as infile:
+        input = parse_nvram_txt(infile.read())
+
+    if base_name:
+        with open(base_name) as infile:
+            base = parse_nvram_txt(infile.read())
+    else:
+        return input
+
+    return input - base;
 
 def write_script(values, outfile):
     '''
     Write values to script_file in the form:
 
-        nvram set name1=value1  # Comment 1
+        nvram set name1=value1
         nvram set name2=value2
         nvram set name3='multi
         line
@@ -85,7 +101,6 @@ def groupby_sections(values, other='Other'):
     if values and other:
         yield other, values
 
-
 crt_template = '''
 # Web GUI Certificate
 echo '{cert}' > /etc/cert.pem
@@ -97,20 +112,28 @@ echo '{key}' > /etc/key.pem
 nvram set https_crt_file="$(cd / && tar -czf - etc/*.pem | openssl enc -A -base64)"
 '''
 
+parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument('-i', '--input', default='nvram.txt', help='input filename')
+parser.add_argument('-b', '--base', default='defaults.txt', help='base filename')
+parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
+
 def main(args):
-    with open('nvram.txt') as infile:
-        current = parse_nvram_txt(infile.read())
+    # Parse arguments.
+    args = parser.parse_args(args)
 
-    with open('defaults-rt-ac66u-freshtomato-2018.5-VPN.txt') as infile:
-        default = parse_nvram_txt(infile.read())
-        
-    diff = set(current.items()) - set(default.items())
+    try:
+        # Diff files.
+        diff = diff_files(args.input, args.base)
+    
+    except FileNotFoundError as error:
+        print(error)
+        parser.print_help()
 
-    with open('diff.txt', 'w') as outfile:
-        outfile.writelines('{0}={1}\n'.format(*item) for item in diff)
-
-    with open('output.txt', 'w') as outfile:
-        write_script(dict(diff), outfile)
+    else:
+        # Write output script.
+        with open(args.output, 'w') as outfile:
+            write_script(dict(diff), outfile)
 
 if __name__ == '__main__':
     import sys
