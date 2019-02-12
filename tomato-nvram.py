@@ -58,9 +58,9 @@ def diff_files(input_name, base_name):
 
     return input - base;
 
-def write_script(values, outfile):
+def write_script(items, outfile):
     '''
-    Write values to script_file in the form:
+    Write items to script_file in the form:
 
         nvram set name1=value1
         nvram set name2=value2
@@ -69,37 +69,45 @@ def write_script(values, outfile):
         value3'
     '''
     # Sections
-    for section, items in groupby_sections(values):
-        outfile.write('\n# {}\n'.format(section))
-        for name, value in sorted(items.items(), key=lambda item: (bool(multiline_chars.search(item[1])), item[0])):
+    for section, section_items in groupby_sections(items):
+        outfile.write('# {}\n'.format(section))
+        for name, value in sorted(section_items, key=lambda item: (bool(multiline_chars.search(item[1])), item[0])):
             if '>' in value or '\n' in value:
                 value = re.sub(r'^|(?<=>)(?!$)', '\\\n', value)
             outfile.write('nvram set {}={}\n'.format(name, shlex.quote(value)))
+        outfile.write('\n')
 
     # Certificate
-    if 'https_crt_file' in values:
-        crt_file = tarfile.open(fileobj=io.BytesIO(base64.b64decode(values['https_crt_file'])))
+    crt_file = dict(items).get('https_crt_file')
+    if crt_file:
+        crt_file = tarfile.open(fileobj=io.BytesIO(base64.b64decode(crt_file)))
         cert = crt_file.extractfile('etc/cert.pem').read().decode()
         key = crt_file.extractfile('etc/key.pem').read().decode()
         outfile.write(crt_template.format(cert=cert.strip(), key=key.strip()))
 
     # Commit
-    outfile.write('\n# Save\nnvram commit\n')
+    outfile.write('# Save\nnvram commit\n')
 
-def groupby_sections(values, other='Other'):
+def groupby_sections(items):
+
+    # Load section patterns.
     parser = configparser.ConfigParser()
     parser.read('config.ini')
-    patterns = {section: re.compile(items['pattern']) for section, items in parser.items() if 'pattern' in items}
-    for section, pattern in patterns.items():
-        section_values = {name: values[name] for name in values if pattern.match(name) and not ignore_names.match(name)}
-        if section_values:
-            yield section, section_values
-            values = {name: values[name] for name in values if name not in section_values}
-    values = {name: values[name] for name in values if not ignore_names.match(name)}
-    if values and other:
-        yield other, values
+    section_names, patterns = zip(*((section_name, section['pattern']) for section_name, section in parser.items() if 'pattern' in section))
 
-crt_template = '''
+    # Group items from values into sections based on pattern matched.
+    lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
+    sections = {name: [] for name in section_names}
+    for item in items:
+        name, value = item
+        match = lookup.match(name)
+        ignore = ignore_names.match(name)
+        if match and not ignore:
+            sections[section_names[match.lastindex - 1]].append(item)
+
+    return ((name, items) for name, items in sections.items() if items)
+
+crt_template = '''\
 # Web GUI Certificate
 echo '{cert}' > /etc/cert.pem
 
@@ -108,6 +116,7 @@ echo '{key}' > /etc/key.pem
 
 # Tar Certificate & Key
 nvram set https_crt_file="$(cd / && tar -czf - etc/*.pem | openssl enc -A -base64)"
+
 '''
 
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
@@ -131,7 +140,7 @@ def main(args):
     else:
         # Write output script.
         with open(args.output, 'w') as outfile:
-            write_script(dict(diff), outfile)
+            write_script(diff, outfile)
 
 if __name__ == '__main__':
     import sys
