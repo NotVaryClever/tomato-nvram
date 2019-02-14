@@ -80,10 +80,7 @@ def write_script(items, outfile):
     # Certificate
     crt_file = dict(items).get('https_crt_file')
     if crt_file:
-        crt_file = tarfile.open(fileobj=io.BytesIO(base64.b64decode(crt_file)))
-        cert = crt_file.extractfile('etc/cert.pem').read().decode()
-        key = crt_file.extractfile('etc/key.pem').read().decode()
-        outfile.write(crt_template.format(cert=cert.strip(), key=key.strip()))
+        outfile.write(HttpsCrtFile(crt_file).formatted())
 
     # Commit
     outfile.write('# Save\nnvram commit\n')
@@ -107,7 +104,21 @@ def groupby_sections(items):
 
     return ((name, items) for name, items in sections.items() if items)
 
-crt_template = '''\
+class HttpsCrtFile:
+    '''
+    Certificate and private key for HTTPS access.
+    '''
+    def __init__(self, https_crt_file, *args, **kwargs):
+        self.tarfile = tarfile.open(fileobj=io.BytesIO(base64.b64decode(https_crt_file)))
+        return super().__init__(*args, **kwargs)
+
+    def getpem(self, name):
+        return self.tarfile.extractfile('etc/{}.pem'.format(name)).read().decode().strip()
+
+    def formatted(self):
+        return self.template.format(**{name: self.getpem(name) for name in ('cert', 'key')})
+
+    template = '''\
 # Web GUI Certificate
 echo '{cert}' > /etc/cert.pem
 
