@@ -60,7 +60,7 @@ def diff_files(input_name, base_name):
 
 def write_script(items, outfile):
     '''
-    Write items to script_file in the form:
+    Write items to outfile in the form:
 
         nvram set name1=value1
         nvram set name2=value2
@@ -93,7 +93,7 @@ def groupby_sections(items):
     # Load section patterns.
     parser = configparser.ConfigParser()
     parser.read('config.ini')
-    section_names, patterns = zip(*((section_name, section['pattern']) for section_name, section in parser.items() if 'pattern' in section))
+    section_names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
 
     # Group items from values into sections based on pattern matched.
     lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
