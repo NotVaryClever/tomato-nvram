@@ -69,13 +69,7 @@ def write_script(items, outfile):
         value3'
     '''
     # Sections
-    for section, section_items in groupby_sections(items):
-        outfile.write('# {}\n'.format(section))
-        for name, value in sorted(section_items, key=lambda item: (bool(multiline_chars.search(item[1])), item[0])):
-            if '>' in value or '\n' in value:
-                value = re.sub(r'^|(?<=>)(?!$)', '\\\n', value)
-            outfile.write('nvram set {}={}\n'.format(name, shlex.quote(value)))
-        outfile.write('\n')
+    outfile.writelines(SectionFormatter(items).formatted())
 
     # Certificate
     crt_file = dict(items).get('https_crt_file')
@@ -85,24 +79,42 @@ def write_script(items, outfile):
     # Commit
     outfile.write('# Save\nnvram commit\n')
 
-def groupby_sections(items):
+class SectionFormatter:
+    def __init__(self, items, filename='config.ini', *args, **kwargs):
+        # Load section patterns.
+        parser = configparser.ConfigParser()
+        parser.read('config.ini')
+        names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
 
-    # Load section patterns.
-    parser = configparser.ConfigParser()
-    parser.read('config.ini')
-    section_names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
+        # Group items into sections based on pattern matched.
+        lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
+        self.sections = {name: [] for name in names}
+        for item in items:
+            name, value = item
+            match = lookup.match(name)
+            ignore = ignore_names.match(name)
+            if match and not ignore:
+                self.sections[names[match.lastindex - 1]].append(item)
 
-    # Group items from values into sections based on pattern matched.
-    lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
-    sections = {name: [] for name in section_names}
-    for item in items:
+        return super().__init__(*args, **kwargs)
+
+    def formatted(self):
+        for name, items in self.sections.items():
+            if items:
+                items = sorted(items, key=self.item_sort_key)
+                yield '# {}\n{}\n'.format(name, ''.join(self.format_item(item) for item in items))
+
+    @staticmethod
+    def format_item(item):
         name, value = item
-        match = lookup.match(name)
-        ignore = ignore_names.match(name)
-        if match and not ignore:
-            sections[section_names[match.lastindex - 1]].append(item)
+        if multiline_chars.search(value):
+            value = re.sub(r'^|(?<=>)(?!$)', '\\\n', value)
+        return 'nvram set {}={}\n'.format(name, shlex.quote(value))
 
-    return ((name, items) for name, items in sections.items() if items)
+    @staticmethod
+    def item_sort_key(item):
+        name, value = item
+        return bool(multiline_chars.search(value)), name
 
 class HttpsCrtFile:
     '''
