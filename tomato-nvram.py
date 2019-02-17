@@ -80,10 +80,13 @@ def write_script(items, outfile):
     outfile.write('# Save\nnvram commit\n')
 
 class SectionFormatter:
+    '''
+    Format items for each section in the config file.
+    '''
     def __init__(self, items, filename='config.ini', *args, **kwargs):
         # Load section patterns.
         parser = configparser.ConfigParser()
-        parser.read('config.ini')
+        parser.read(filename)
         names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
 
         # Group items into sections based on pattern matched.
@@ -101,8 +104,9 @@ class SectionFormatter:
     def formatted(self):
         for name, items in self.sections.items():
             if items:
-                items = sorted(items, key=self.item_sort_key)
-                yield '# {}\n{}\n'.format(name, ''.join(self.format_item(item) for item in items))
+                items.sort(key=self.item_sort_key)
+                formatted = ''.join(self.format_item(item) for item in items)
+                yield '# {}\n{}\n'.format(name, formatted)
 
     @staticmethod
     def format_item(item):
