@@ -83,7 +83,7 @@ class SectionFormatter:
     '''
     Format items for each section in the config file.
     '''
-    def __init__(self, items, filename='config.ini', *args, **kwargs):
+    def __init__(self, items, filename='config.ini'):
         # Load section patterns.
         parser = configparser.ConfigParser()
         parser.read(filename)
@@ -93,32 +93,33 @@ class SectionFormatter:
         lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
         self.sections = {name: [] for name in names}
         for item in items:
-            name, value = item
-            match = lookup.match(name)
-            ignore = ignore_names.match(name)
-            if match and not ignore:
+            item = self.Item(*item)
+            match = lookup.match(item.name)
+            if match and not ignore_names.match(item.name):
                 self.sections[names[match.lastindex - 1]].append(item)
-
-        return super().__init__(*args, **kwargs)
 
     def formatted(self):
         for name, items in self.sections.items():
             if items:
-                items.sort(key=self.item_sort_key)
-                formatted = ''.join(self.format_item(item) for item in items)
+                formatted = ''.join(item.formatted() for item in sorted(items))
                 yield '# {}\n{}\n'.format(name, formatted)
 
-    @staticmethod
-    def format_item(item):
-        name, value = item
-        if multiline_chars.search(value):
-            value = re.sub(r'^|(?<=>)(?!$)', '\\\n', value)
-        return 'nvram set {}={}\n'.format(name, shlex.quote(value))
+    class Item:
+        '''
+        Format a single item.
+        '''
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+            self.multiline = bool(multiline_chars.search(value))
+            self.sort_key = self.multiline, name
 
-    @staticmethod
-    def item_sort_key(item):
-        name, value = item
-        return bool(multiline_chars.search(value)), name
+        def __lt__(self, other):
+            return self.sort_key < other.sort_key
+
+        def formatted(self):
+            value = re.sub(r'^|(?<=>)(?!$)', '\\\n', self.value) if self.multiline else self.value
+            return 'nvram set {}={}\n'.format(self.name, shlex.quote(value))
 
 class HttpsCrtFile:
     '''
