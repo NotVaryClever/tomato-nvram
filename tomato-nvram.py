@@ -26,9 +26,6 @@ nvram_txt_pattern = re.compile(r'''
 |$)                 # Or end of file
 ''', re.DOTALL | re.VERBOSE)
 
-# Multiline characters
-multiline_chars = re.compile(r'[>\n]')
-
 def parse_nvram_txt(nvram_txt):
     '''
     Parse nvram.txt of the form:
@@ -111,20 +108,30 @@ class SectionFormatter:
         def __init__(self, name, value):
             self.name = name
             self.value = value
-            self.multiline = bool(multiline_chars.search(value))
-            self.sort_key = self.multiline, name
 
-            if self.multiline:
-                value = '"{}"'.format(re.sub(r'^|(?<=>)(?!$)', '\\\n', value))
-            else:
+            # Format value.
+            if "'" in value:
+                value = self.special_chars.sub(r'\\\g<0>', value)
+            elif not self.special_chars.search(value):
+                if '>' in value and '\n' not in value:
+                    value = re.sub(r'(?<=>)(?!$)', '\\\n', value)
+                if '\n' in value:
+                    value = '\\\n{}'.format(value)
+            if value != self.value:
+                value = '"{}"'.format(value)
+            elif value:
                 value = shlex.quote(value)
             self.command = 'nvram set {}={}'.format(name, value)
+
+            self.sort_key = '\n' in self.command, name
 
         def __lt__(self, other):
             return self.sort_key < other.sort_key
 
         def formatted(self):
             return '{}\n'.format(self.command)
+
+        special_chars = re.compile(r'["\\$`]')
 
 class HttpsCrtFile:
     '''
