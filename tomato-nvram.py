@@ -17,13 +17,13 @@ http_id         # HTTP ID
 
 # Format of items in nvram.txt
 nvram_txt_pattern = re.compile(r'''
-(?P<name>[a-z0-9_.:/]+) # Name
-=                       # Equals
-(?P<value>.*?)          # Value
-\n(?=                   # Followed by
-[a-z0-9_.:/]+=          # Next stanza
-|---\n                  # Or prelude on MIPS
-|$)                     # Or end of file
+(?P<name>[\w.:/]+)  # Name
+=                   # Equals
+(?P<value>.*?)      # Value
+\n(?=               # Followed by
+[\w.:/]+=           # Next stanza
+|---\n              # Or prelude on MIPS
+|$)                 # Or end of file
 ''', re.DOTALL | re.VERBOSE)
 
 # Multiline characters
