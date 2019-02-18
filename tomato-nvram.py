@@ -114,12 +114,17 @@ class SectionFormatter:
             self.multiline = bool(multiline_chars.search(value))
             self.sort_key = self.multiline, name
 
+            if self.multiline:
+                value = '"{}"'.format(re.sub(r'^|(?<=>)(?!$)', '\\\n', value))
+            else:
+                value = shlex.quote(value)
+            self.command = 'nvram set {}={}'.format(name, value)
+
         def __lt__(self, other):
             return self.sort_key < other.sort_key
 
         def formatted(self):
-            value = re.sub(r'^|(?<=>)(?!$)', '\\\n', self.value) if self.multiline else self.value
-            return 'nvram set {}={}\n'.format(self.name, shlex.quote(value))
+            return '{}\n'.format(self.command)
 
 class HttpsCrtFile:
     '''
