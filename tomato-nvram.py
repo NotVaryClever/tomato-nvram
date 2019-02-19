@@ -15,16 +15,12 @@ http_id         # HTTP ID
 |\w+_cache      # Cache
 ''', re.VERBOSE)
 
-# Format of items in nvram.txt
-nvram_txt_pattern = re.compile(r'''
+nvram_txt_split = re.compile(r'''
+(?:\n|^)            # Newline (or start of string)
 (?P<name>[\w.:/]+)  # Name
 =                   # Equals
-(?P<value>.*?)      # Value
-\n(?=               # Followed by
-[\w.:/]+=           # Next stanza
-|---\n              # Or prelude on MIPS
-|$)                 # Or end of file
-''', re.DOTALL | re.VERBOSE)
+(?!=|\s*\n[^\w.:/]) # Values can't start wtih an equals or a newline
+''', re.VERBOSE)
 
 def parse_nvram_txt(nvram_txt):
     '''
@@ -38,7 +34,9 @@ def parse_nvram_txt(nvram_txt):
 
     Return a set of name-value tuples.
     '''
-    return set(match.groups() for match in nvram_txt_pattern.finditer(nvram_txt))
+    nvram_txt = re.sub(r'\n(---\n[\w\s,.]+)?$', '', nvram_txt)
+    namevalues = nvram_txt_split.split(nvram_txt)[1:]
+    return set(zip(*([iter(namevalues)] * 2)))
 
 def diff_files(input_name, base_name):
     '''
