@@ -106,21 +106,7 @@ class SectionFormatter:
         def __init__(self, name, value):
             self.name = name
             self.value = value
-
-            # Format value.
-            if "'" in value:
-                value = self.special_chars.sub(r'\\\g<0>', value)
-            elif not self.special_chars.search(value):
-                if '>' in value and '\n' not in value:
-                    value = re.sub(r'(?<=>)(?!$)', '\\\n', value)
-                if '\n' in value:
-                    value = '\\\n{}'.format(value)
-            if value != self.value:
-                value = '"{}"'.format(value)
-            elif value:
-                value = shlex.quote(value)
-            self.command = 'nvram set {}={}'.format(name, value)
-
+            self.command = 'nvram set {}={}'.format(name, self.quoted(value))
             self.sort_key = '\n' in self.command, name
 
         def __lt__(self, other):
@@ -129,7 +115,19 @@ class SectionFormatter:
         def formatted(self):
             return '{}\n'.format(self.command)
 
-        special_chars = re.compile(r'["\\$`]')
+        @classmethod
+        def quoted(cls, value):
+            if "'" in value:
+                return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
+            if not cls.special_chars.search(value):
+                if cls.list_break.search(value) and '\n' not in value:
+                    return '"{}"'.format(cls.list_break.sub('\\\n', value))
+                if '\n' in value:
+                    return '"\\\n{}"'.format(value)
+            return shlex.quote(value) if value else value
+
+        special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
+        list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
 class HttpsCrtFile:
     '''
