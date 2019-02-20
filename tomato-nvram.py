@@ -121,7 +121,7 @@ class SectionFormatter:
                 return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
             if not cls.special_chars.search(value):
                 if cls.list_break.search(value) and '\n' not in value:
-                    return '"{}"'.format(cls.list_break.sub('\\\n', value))
+                    return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
                 if '\n' in value:
                     return '"\\\n{}"'.format(value)
             return shlex.quote(value) if value else value
