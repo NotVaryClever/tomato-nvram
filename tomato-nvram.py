@@ -107,7 +107,7 @@ class SectionFormatter:
             self.name = name
             self.value = value
             self.command = 'nvram set {}={}'.format(name, self.quoted(value))
-            self.sort_key = '\n' in self.command, name
+            self.sort_key = self.command.count('\n'), name.lower(), name
 
         def __lt__(self, other):
             return self.sort_key < other.sort_key
