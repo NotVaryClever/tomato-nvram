@@ -96,7 +96,8 @@ class SectionFormatter:
     def formatted(self):
         for name, items in self.sections.items():
             if items:
-                formatted = ''.join(item.formatted() for item in sorted(items))
+                width = max(item.width for item in items)
+                formatted = ''.join(item.formatted(width) for item in sorted(items))
                 yield '# {}\n{}\n'.format(name, formatted)
 
     class Item:
@@ -107,13 +108,22 @@ class SectionFormatter:
             self.name = name
             self.value = value
             self.command = 'nvram set {}={}'.format(name, self.quoted(value))
-            self.sort_key = self.command.count('\n'), name.lower(), name
+            self.newlines = self.command.count('\n')
+            self.sort_key = self.newlines, name.lower(), name
+            self.width = len(self.command) if not self.newlines else 0
 
         def __lt__(self, other):
             return self.sort_key < other.sort_key
 
-        def formatted(self):
-            return '{}\n'.format(self.command)
+        def formatted(self, width=0):
+            comment = None
+            if comment:
+                if self.newlines:
+                    return '\n# {}\n{}\n'.format(comment, self.command)
+                else:
+                    return '{:<{}} # {}\n'.format(self.command, width, comment)
+            else:
+                return '{}\n'.format(self.command)
 
         @classmethod
         def quoted(cls, value):
