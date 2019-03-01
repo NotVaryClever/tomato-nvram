@@ -3,6 +3,7 @@
 import argparse
 import base64
 import configparser
+import collections
 import io
 import re
 import shlex
@@ -12,6 +13,7 @@ import tarfile
 ignore_names = re.compile(r'''
 http_id         # HTTP ID
 |https_crt_file # HTTP Certificate
+|os_\w+         # OS Values
 |\w+_cache      # Cache
 ''', re.VERBOSE)
 
@@ -40,7 +42,7 @@ def parse_nvram_txt(nvram_txt):
     '''
     nvram_txt = nvram_txt_epilogue.sub('', nvram_txt)
     _, *namevalues = nvram_txt_split.split(nvram_txt)
-    return set(zip(*([iter(namevalues)] * 2)))
+    return set(zip(*[iter(namevalues)] * 2))
 
 def diff_files(input_name, base_name):
     '''
@@ -100,8 +102,16 @@ class SectionFormatter:
     def formatted(self):
         for name, items in self.sections.items():
             if items:
+                # Find max width.
                 width = max(item.width for item in items)
-                formatted = ''.join(item.formatted(width) for item in sorted(items))
+
+                # Divide into single and multi line items.
+                newlines = collections.defaultdict(list)
+                for item in sorted(items):
+                    newlines[bool(item.newlines)].append(item)
+                single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
+
+                formatted = ''.join(single) + '\n'.join(multi)
                 yield '# {}\n{}\n'.format(name, formatted)
 
     class Item:
@@ -191,6 +201,8 @@ def main(args):
         # Write output script.
         with open(args.output, 'w') as outfile:
             write_script(diff, outfile)
+
+        print('{:,} values written to {}'.format(len(diff), args.output))
 
 if __name__ == '__main__':
     import sys
