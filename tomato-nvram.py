@@ -4,6 +4,7 @@ import argparse
 import base64
 import configparser
 import collections
+import itertools
 import io
 import re
 import shlex
@@ -54,10 +55,11 @@ def diff_files(input_name, base_name):
     if base_name:
         with open(base_name) as infile:
             base = parse_nvram_txt(infile.read())
+    
+        return input - base;
+
     else:
         return input
-
-    return input - base;
 
 def write_script(items, outfile):
     '''
@@ -70,7 +72,7 @@ def write_script(items, outfile):
         value3'
     '''
     # Sections
-    outfile.writelines(SectionFormatter(items).formatted())
+    outfile.write(SectionFormatter(items).formatted())
 
     # Certificate
     crt_file = dict(items).get('https_crt_file')
@@ -89,30 +91,49 @@ class SectionFormatter:
         parser = configparser.ConfigParser()
         parser.read(filename)
         names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
+        rank = collections.defaultdict(lambda: len(names), ((name, i) for i, name in enumerate(names)))
+        rank['Other'] = len(rank) + 1
 
-        # Group items into sections based on pattern matched.
+        # Group items based on pattern matched.
         lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
-        self.sections = {name: [] for name in names}
+        groups = collections.defaultdict(list)
         for item in items:
             item = self.Item(*item)
-            match = lookup.match(item.name)
-            if match and not ignore_names.match(item.name):
-                self.sections[names[match.lastindex - 1]].append(item)
+            if not ignore_names.match(item.name):
+                match = lookup.match(item.name)
+                name = names[match.lastindex - 1] if match else item.group
+                groups[name].append(item)
+
+        # Collapse small groups.
+        keep, other = bisect(groups.items(), lambda group: len(group[1]) > 4 or rank[group[0]] < len(names))
+        keep = dict(keep)
+        keep['Other'].extend(itertools.chain(*(items for name, items in other)))
+
+        # Sort by config order.
+        self.groups = sorted(self.Group(name, items, rank[name]) for name, items in keep.items())
 
     def formatted(self):
-        for name, items in self.sections.items():
-            if items:
-                # Find max width.
-                width = max(item.width for item in items)
+        return '\n'.join(group.formatted() for group in self.groups)
 
-                # Divide into single and multi line items.
-                newlines = collections.defaultdict(list)
-                for item in sorted(items):
-                    newlines[bool(item.newlines)].append(item)
-                single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
+    class Group:
+        def __init__(self, name, items, rank):
+            self.name = name
+            self.items = items
+            self.width = max(item.width for item in items)
+            self.sort_key = any(item.large for item in items), rank, name
 
-                formatted = ''.join(single) + '\n'.join(multi)
-                yield '# {}\n{}\n'.format(name, formatted)
+        def __lt__(self, other):
+            return self.sort_key < other.sort_key
+
+        def formatted(self):
+            # Format and divide into single and multi line items.
+            newlines = collections.defaultdict(list)
+            for item in sorted(self.items):
+                newlines[bool(item.newlines)].append(item)
+            single, multi = ((item.formatted(self.width) for item in newlines[key]) for key in (False, True))
+
+            formatted = ''.join(single) + '\n'.join(multi)
+            return '# {}\n{}'.format(self.name, formatted)
 
     class Item:
         '''
@@ -121,10 +142,16 @@ class SectionFormatter:
         def __init__(self, name, value):
             self.name = name
             self.value = value
+
+            parts = tuple(self.capitalize(part) for part in name.split('_'))
+            self.group = parts[0] if len(parts) > 1 else 'Other'
+            self.comment = parts[-1]
+
             self.command = 'nvram set {}={}'.format(name, self.quoted(value))
             self.newlines = self.command.count('\n')
             self.sort_key = self.newlines, name.lower(), name
             self.width = len(self.command) if not self.newlines else 0
+            self.large = self.newlines > 24 or self.width > 128
 
         def __lt__(self, other):
             return self.sort_key < other.sort_key
@@ -138,6 +165,10 @@ class SectionFormatter:
                     return '{:<{}} # {}\n'.format(self.command, width, comment)
             else:
                 return '{}\n'.format(self.command)
+
+        @staticmethod
+        def capitalize(part):
+            return part.capitalize() if len(part) > 4 else part.upper()
 
         @classmethod
         def quoted(cls, value):
@@ -167,7 +198,7 @@ class HttpsCrtFile:
     def formatted(self):
         return self.template.format(**{name: self.getpem(name) for name in ('cert', 'key')})
 
-    template = '''\
+    template = '''
 # Web GUI Certificate
 echo '{cert}' > /etc/cert.pem
 
@@ -178,6 +209,12 @@ echo '{key}' > /etc/key.pem
 nvram set https_crt_file="$(cd / && tar -czf - etc/*.pem | openssl enc -A -base64)"
 
 '''
+
+def bisect(items, predicate):
+    matches = collections.defaultdict(list)
+    for item in items:
+        matches[predicate(item)].append(item)
+    return matches[True], matches[False]
 
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
