@@ -96,7 +96,10 @@ class SectionFormatter:
 
         # Group items based on pattern matched.
         lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
-        groups = collections.defaultdict(list)
+        class Groups(collections.defaultdict):
+            def __missing__(self_, key):
+                return self_.setdefault(key, self.Group(key))
+        groups = Groups()
         for item in items:
             item = self.Item(*item)
             if not ignore_names.match(item.name):
@@ -105,32 +108,34 @@ class SectionFormatter:
                 groups[name].append(item)
 
         # Collapse small groups.
-        keep, other = bisect(groups.items(), lambda group: len(group[1]) > 4 or rank[group[0]] < len(names))
-        keep = dict(keep)
-        keep['Other'].extend(itertools.chain(*(items for name, items in other)))
+        def keep(group):
+            return rank[group.name] != len(names) or len(group) >= 3
+        self.groups, small = bisect(groups.values(), keep)
+        if small:
+            groups['Other'].extend(itertools.chain(*small))
 
         # Sort by config order.
-        self.groups = sorted(self.Group(name, items, rank[name]) for name, items in keep.items())
+        self.groups.sort(key=lambda group: (group.large, rank[group.name], group.name))
 
     def formatted(self):
         return '\n'.join(group.formatted() for group in self.groups)
 
-    class Group:
-        def __init__(self, name, items, rank):
+    class Group(list):
+        def __init__(self, name, *args, **kwargs):
             self.name = name
-            self.items = items
-            self.width = max(item.width for item in items)
-            self.sort_key = any(item.large for item in items), rank, name
+            return super().__init__(*args, **kwargs)
 
-        def __lt__(self, other):
-            return self.sort_key < other.sort_key
+        @property
+        def large(self):
+            return any(item.large for item in self)
 
         def formatted(self):
             # Format and divide into single and multi line items.
+            width = max(item.width for item in self)
             newlines = collections.defaultdict(list)
-            for item in sorted(self.items):
+            for item in sorted(self):
                 newlines[bool(item.newlines)].append(item)
-            single, multi = ((item.formatted(self.width) for item in newlines[key]) for key in (False, True))
+            single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
 
             formatted = ''.join(single) + '\n'.join(multi)
             return '# {}\n{}'.format(self.name, formatted)
