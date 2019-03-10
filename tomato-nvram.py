@@ -95,17 +95,7 @@ class SectionFormatter:
         rank['Other'] = len(rank) + 1
 
         # Group items based on pattern matched.
-        lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
-        class Groups(collections.defaultdict):
-            def __missing__(self_, key):
-                return self_.setdefault(key, self.Group(key))
-        groups = Groups()
-        for item in items:
-            item = self.Item(*item)
-            if not ignore_names.match(item.name):
-                match = lookup.match(item.name)
-                name = names[match.lastindex - 1] if match else item.group
-                groups[name].append(item)
+        groups = self.Groups(items, names, patterns)
 
         # Collapse small groups.
         def keep(group):
@@ -120,74 +110,94 @@ class SectionFormatter:
     def formatted(self):
         return '\n'.join(group.formatted() for group in self.groups)
 
-    class Group(list):
-        def __init__(self, name, *args, **kwargs):
-            self.name = name
-            return super().__init__(*args, **kwargs)
-
-        @property
-        def large(self):
-            return any(item.large for item in self)
-
-        def formatted(self):
-            # Format and divide into single and multi line items.
-            width = max(item.width for item in self)
-            newlines = collections.defaultdict(list)
-            for item in sorted(self):
-                newlines[bool(item.newlines)].append(item)
-            single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
-
-            formatted = ''.join(single) + '\n'.join(multi)
-            return '# {}\n{}'.format(self.name, formatted)
-
-    class Item:
+    class Groups(collections.defaultdict):
         '''
-        Format a single item.
+        Container for groups/sections.
         '''
-        def __init__(self, name, value):
-            self.name = name
-            self.value = value
+        def __init__(self, items, names, patterns):
+            super().__init__()
+            lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
+            for item in items:
+                item = self.Item(*item)
+                if not ignore_names.match(item.name):
+                    match = lookup.match(item.name)
+                    group = names[match.lastindex - 1] if match else item.group
+                    self[group].append(item)
 
-            parts = tuple(self.capitalize(part) for part in name.split('_'))
-            self.group = parts[0] if len(parts) > 1 else 'Other'
-            self.comment = parts[-1]
+        def __missing__(self, key):
+            return self.setdefault(key, self.Group(key))
 
-            self.command = 'nvram set {}={}'.format(name, self.quoted(value))
-            self.newlines = self.command.count('\n')
-            self.sort_key = self.newlines, name.lower(), name
-            self.width = len(self.command) if not self.newlines else 0
-            self.large = self.newlines > 24 or self.width > 128
+        class Group(list):
+            '''
+            Format a named group of items.
+            '''
+            def __init__(self, name, *args, **kwargs):
+                self.name = name
+                return super().__init__(*args, **kwargs)
 
-        def __lt__(self, other):
-            return self.sort_key < other.sort_key
+            @property
+            def large(self):
+                return any(item.large for item in self)
 
-        def formatted(self, width=0):
-            comment = None
-            if comment:
-                if self.newlines:
-                    return '\n# {}\n{}\n'.format(comment, self.command)
+            def formatted(self):
+                # Format and divide into single and multi line items.
+                width = max(item.width for item in self)
+                newlines = collections.defaultdict(list)
+                for item in sorted(self):
+                    newlines[bool(item.newlines)].append(item)
+                single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
+
+                formatted = ''.join(single) + '\n'.join(multi)
+                return '# {}\n{}'.format(self.name, formatted)
+
+        class Item:
+            '''
+            Format a single item.
+            '''
+            def __init__(self, name, value):
+                self.name = name
+                self.value = value
+
+                parts = tuple(self.capitalize(part) for part in name.split('_'))
+                self.group = parts[0] if len(parts) > 1 else 'Other'
+                self.comment = parts[-1]
+
+                self.command = 'nvram set {}={}'.format(name, self.quoted(value))
+                self.newlines = self.command.count('\n')
+                self.sort_key = self.newlines, name.lower(), name
+                self.width = len(self.command) if not self.newlines else 0
+                self.large = self.newlines > 24 or self.width > 128
+
+            def __lt__(self, other):
+                return self.sort_key < other.sort_key
+
+            def formatted(self, width=0):
+                comment = None
+                if comment:
+                    if self.newlines:
+                        return '\n# {}\n{}\n'.format(comment, self.command)
+                    else:
+                        return '{:<{}} # {}\n'.format(self.command, width, comment)
                 else:
-                    return '{:<{}} # {}\n'.format(self.command, width, comment)
-            else:
-                return '{}\n'.format(self.command)
+                    return '{}\n'.format(self.command)
 
-        @staticmethod
-        def capitalize(part):
-            return part.capitalize() if len(part) > 4 else part.upper()
+            @staticmethod
+            def capitalize(part):
+                return part.capitalize() if len(part) > 4 else part.upper()
 
-        @classmethod
-        def quoted(cls, value):
-            if "'" in value:
-                return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
-            if not cls.special_chars.search(value):
-                if cls.list_break.search(value) and '\n' not in value:
-                    return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
-                if '\n' in value:
-                    return '"\\\n{}"'.format(value)
-            return shlex.quote(value) if value else value
+            @classmethod
+            def quoted(cls, value):
+                if "'" in value:
+                    return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
+                if not cls.special_chars.search(value):
+                    if cls.list_break.search(value) and '\n' not in value:
+                        return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
+                    if '\n' in value:
+                        return '"\\\n{}"'.format(value)
+                return shlex.quote(value) if value else value
 
-        special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
-        list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
+            special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
+            list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
 class HttpsCrtFile:
     '''
