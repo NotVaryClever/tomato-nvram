@@ -61,7 +61,7 @@ def diff_files(input_name, base_name):
     else:
         return input
 
-def write_script(items, outfile):
+def write_script(items, outfile, config):
     '''
     Write items to outfile in the form:
 
@@ -71,8 +71,15 @@ def write_script(items, outfile):
         line
         value3'
     '''
+    # Collapse small groups.
+    def collapse(group):
+        return config.rank[group.name] == len(config.names) and len(group) < 3
+
+    # Group items based on pattern matched.
+    groups = Groups(items, config).collapse(collapse)
+
     # Sections
-    outfile.write(SectionFormatter(items).formatted())
+    outfile.write(groups.formatted())
 
     # Certificate
     crt_file = dict(items).get('https_crt_file')
@@ -82,139 +89,124 @@ def write_script(items, outfile):
     # Commit
     outfile.write('# Save\nnvram commit\n')
 
-class SectionFormatter:
+class Config:
     '''
-    Format items for each section in the config file.
+    Group configuration from config.ini.
     '''
-    def __init__(self, items, filename='config.ini'):
-        # Load group names and patterns.
-        config = self.Config(filename)
+    def __init__(self, filename):
+        parser = configparser.ConfigParser()
+        parser.read(filename)
+        self.names, self.patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
+        self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
+        self.rank['Other'] = len(self.rank) + 1
 
-        # Collapse small groups.
-        def collapse(group):
-            return config.rank[group.name] == len(config.names) and len(group) < 3
+class Groups(collections.defaultdict):
+    '''
+    Container for groups/sections.
+    '''
+    def __init__(self, items, config):
+        super().__init__()
+        self.rank = config.rank
+        lookup = re.compile('|'.join('({})'.format(pattern) for pattern in config.patterns))
+        for item in items:
+            item = self.Item(*item)
+            if not ignore_names.match(item.name):
+                match = lookup.match(item.name)
+                group = config.names[match.lastindex - 1] if match else item.group
+                self[group].append(item)
 
-        # Group items based on pattern matched.
-        self.groups = self.Groups(items, config).collapse(collapse).values()
+    def __missing__(self, key):
+        return self.setdefault(key, self.Group(key, self.rank[key]))
+
+    def collapse(self, func, dst='Other'):
+        for key in {key for key, group in self.items() if func(group) and key != dst}:
+            if dst:
+                self[dst].extend(self[key])
+            del self[key]
+        return self
 
     def formatted(self):
-        return '\n'.join(group.formatted() for group in sorted(self.groups))
+        return '\n'.join(group.formatted() for group in sorted(self.values()))
 
-    class Config:
+    class Group(list):
         '''
-        Group configuration from config.ini.
+        Format a named group of items.
         '''
-        def __init__(self, filename):
-            parser = configparser.ConfigParser()
-            parser.read(filename)
-            self.names, self.patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
-            self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
-            self.rank['Other'] = len(self.rank) + 1
+        def __init__(self, name, rank, *args, **kwargs):
+            self.name = name
+            self.rank = rank
+            return super().__init__(*args, **kwargs)
 
-    class Groups(collections.defaultdict):
+        def __lt__(self, other):
+            return self.sort_key < other.sort_key
+
+        @property
+        def large(self):
+            return any(item.large for item in self)
+
+        @property
+        def sort_key(self):
+            return self.large, self.rank, self.name
+
+        def formatted(self):
+            # Format and divide into single and multi line items.
+            width = max(item.width for item in self)
+            newlines = collections.defaultdict(list)
+            for item in sorted(self):
+                newlines[bool(item.newlines)].append(item)
+            single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
+
+            formatted = ''.join(single) + '\n'.join(multi)
+            return '# {}\n{}'.format(self.name, formatted)
+
+    class Item:
         '''
-        Container for groups/sections.
+        Format a single item.
         '''
-        def __init__(self, items, config):
-            super().__init__()
-            self.rank = config.rank
-            lookup = re.compile('|'.join('({})'.format(pattern) for pattern in config.patterns))
-            for item in items:
-                item = self.Item(*item)
-                if not ignore_names.match(item.name):
-                    match = lookup.match(item.name)
-                    group = config.names[match.lastindex - 1] if match else item.group
-                    self[group].append(item)
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
 
-        def __missing__(self, key):
-            return self.setdefault(key, self.Group(key, self.rank[key]))
+            parts = tuple(self.capitalize(part) for part in name.split('_'))
+            self.group = parts[0] if len(parts) > 1 else 'Other'
+            self.comment = parts[-1]
 
-        def collapse(self, func, dst='Other'):
-            for key in {key for key, group in self.items() if func(group) and key != dst}:
-                if dst:
-                    self[dst].extend(self[key])
-                del self[key]
-            return self
+            self.command = 'nvram set {}={}'.format(name, self.quoted(value))
+            self.newlines = self.command.count('\n')
+            self.sort_key = self.newlines, name.lower(), name
+            self.width = len(self.command) if not self.newlines else 0
+            self.large = self.newlines > 24 or self.width > 128
 
-        class Group(list):
-            '''
-            Format a named group of items.
-            '''
-            def __init__(self, name, rank, *args, **kwargs):
-                self.name = name
-                self.rank = rank
-                return super().__init__(*args, **kwargs)
+        def __lt__(self, other):
+            return self.sort_key < other.sort_key
 
-            def __lt__(self, other):
-                return self.sort_key < other.sort_key
-
-            @property
-            def large(self):
-                return any(item.large for item in self)
-
-            @property
-            def sort_key(self):
-                return self.large, self.rank, self.name
-
-            def formatted(self):
-                # Format and divide into single and multi line items.
-                width = max(item.width for item in self)
-                newlines = collections.defaultdict(list)
-                for item in sorted(self):
-                    newlines[bool(item.newlines)].append(item)
-                single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
-
-                formatted = ''.join(single) + '\n'.join(multi)
-                return '# {}\n{}'.format(self.name, formatted)
-
-        class Item:
-            '''
-            Format a single item.
-            '''
-            def __init__(self, name, value):
-                self.name = name
-                self.value = value
-
-                parts = tuple(self.capitalize(part) for part in name.split('_'))
-                self.group = parts[0] if len(parts) > 1 else 'Other'
-                self.comment = parts[-1]
-
-                self.command = 'nvram set {}={}'.format(name, self.quoted(value))
-                self.newlines = self.command.count('\n')
-                self.sort_key = self.newlines, name.lower(), name
-                self.width = len(self.command) if not self.newlines else 0
-                self.large = self.newlines > 24 or self.width > 128
-
-            def __lt__(self, other):
-                return self.sort_key < other.sort_key
-
-            def formatted(self, width=0):
-                comment = None
-                if comment:
-                    if self.newlines:
-                        return '\n# {}\n{}\n'.format(comment, self.command)
-                    else:
-                        return '{:<{}} # {}\n'.format(self.command, width, comment)
+        def formatted(self, width=0):
+            comment = None
+            if comment:
+                if self.newlines:
+                    return '\n# {}\n{}\n'.format(comment, self.command)
                 else:
-                    return '{}\n'.format(self.command)
+                    return '{:<{}} # {}\n'.format(self.command, width, comment)
+            else:
+                return '{}\n'.format(self.command)
 
-            @staticmethod
-            def capitalize(part):
-                return part.capitalize() if len(part) > 4 else part.upper()
+        @staticmethod
+        def capitalize(part):
+            return part.capitalize() if len(part) > 4 else part.upper()
 
-            @classmethod
-            def quoted(cls, value):
-                if "'" in value:
-                    return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
-                if not cls.special_chars.search(value):
-                    if cls.list_break.search(value) and '\n' not in value:
-                        return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
-                    if '\n' in value:
-                        return '"\\\n{}"'.format(value)
-                return shlex.quote(value) if value else value
+        @classmethod
+        def quoted(cls, value):
+            if "'" in value:
+                return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
+            if not cls.special_chars.search(value):
+                if cls.list_break.search(value) and '\n' not in value:
+                    return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
+                if '\n' in value:
+                    return '"\\\n{}"'.format(value)
+            return shlex.quote(value) if value else value
 
-            special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
-            list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
+        special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
+        list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
 class HttpsCrtFile:
     '''
@@ -253,6 +245,7 @@ parser = argparse.ArgumentParser(description='Generate NVRAM setting shell scrip
 parser.add_argument('-i', '--input', default='nvram.txt', help='input filename')
 parser.add_argument('-b', '--base', default='defaults.txt', help='base filename')
 parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
+parser.add_argument('-c', '--config', default='config.ini', help='config filename')
 
 def main(args):
     # Parse arguments.
@@ -267,9 +260,12 @@ def main(args):
         parser.print_help()
 
     else:
+        # Load conifg.
+        config = Config(args.config)
+
         # Write output script.
         with open(args.output, 'w') as outfile:
-            write_script(diff, outfile)
+            write_script(diff, outfile, config)
 
         print('{:,} values written to {}'.format(len(diff), args.output))
 
