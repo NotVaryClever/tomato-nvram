@@ -94,14 +94,12 @@ class SectionFormatter:
         groups = self.Groups(items, config)
 
         # Collapse small groups.
-        def keep(group):
-            return config.rank[group.name] != len(config.names) or len(group) >= 3
-        self.groups, small = bisect(groups.values(), keep)
-        if small:
-            groups['Other'].extend(itertools.chain(*small))
+        def collapse(group):
+            return config.rank[group.name] == len(config.names) and len(group) < 3
+        groups.collapse(collapse)
 
         # Sort by config order.
-        self.groups.sort(key=lambda group: (group.large, config.rank[group.name], group.name))
+        self.groups = sorted(groups.values(), key=lambda group: (group.large, config.rank[group.name], group.name))
 
     def formatted(self):
         return '\n'.join(group.formatted() for group in self.groups)
@@ -133,6 +131,12 @@ class SectionFormatter:
 
         def __missing__(self, key):
             return self.setdefault(key, self.Group(key))
+
+        def collapse(self, func, dst='Other'):
+            for key in {key for key, group in self.items() if func(group) and key != dst}:
+                if dst:
+                    self[dst].extend(self[key])
+                del self[key]
 
         class Group(list):
             '''
