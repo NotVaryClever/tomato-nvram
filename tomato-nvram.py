@@ -87,41 +87,48 @@ class SectionFormatter:
     Format items for each section in the config file.
     '''
     def __init__(self, items, filename='config.ini'):
-        # Load section patterns.
-        parser = configparser.ConfigParser()
-        parser.read(filename)
-        names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
-        rank = collections.defaultdict(lambda: len(names), ((name, i) for i, name in enumerate(names)))
-        rank['Other'] = len(rank) + 1
+        # Load group names and patterns.
+        config = self.Config(filename)
 
         # Group items based on pattern matched.
-        groups = self.Groups(items, names, patterns)
+        groups = self.Groups(items, config)
 
         # Collapse small groups.
         def keep(group):
-            return rank[group.name] != len(names) or len(group) >= 3
+            return config.rank[group.name] != len(config.names) or len(group) >= 3
         self.groups, small = bisect(groups.values(), keep)
         if small:
             groups['Other'].extend(itertools.chain(*small))
 
         # Sort by config order.
-        self.groups.sort(key=lambda group: (group.large, rank[group.name], group.name))
+        self.groups.sort(key=lambda group: (group.large, config.rank[group.name], group.name))
 
     def formatted(self):
         return '\n'.join(group.formatted() for group in self.groups)
+
+    class Config:
+        '''
+        Group configuration from config.ini.
+        '''
+        def __init__(self, filename):
+            parser = configparser.ConfigParser()
+            parser.read(filename)
+            self.names, self.patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
+            self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
+            self.rank['Other'] = len(self.rank) + 1
 
     class Groups(collections.defaultdict):
         '''
         Container for groups/sections.
         '''
-        def __init__(self, items, names, patterns):
+        def __init__(self, items, config):
             super().__init__()
-            lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
+            lookup = re.compile('|'.join('({})'.format(pattern) for pattern in config.patterns))
             for item in items:
                 item = self.Item(*item)
                 if not ignore_names.match(item.name):
                     match = lookup.match(item.name)
-                    group = names[match.lastindex - 1] if match else item.group
+                    group = config.names[match.lastindex - 1] if match else item.group
                     self[group].append(item)
 
         def __missing__(self, key):
