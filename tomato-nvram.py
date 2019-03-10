@@ -90,19 +90,15 @@ class SectionFormatter:
         # Load group names and patterns.
         config = self.Config(filename)
 
-        # Group items based on pattern matched.
-        groups = self.Groups(items, config)
-
         # Collapse small groups.
         def collapse(group):
             return config.rank[group.name] == len(config.names) and len(group) < 3
-        groups.collapse(collapse)
 
-        # Sort by config order.
-        self.groups = sorted(groups.values(), key=lambda group: (group.large, config.rank[group.name], group.name))
+        # Group items based on pattern matched.
+        self.groups = self.Groups(items, config).collapse(collapse).values()
 
     def formatted(self):
-        return '\n'.join(group.formatted() for group in self.groups)
+        return '\n'.join(group.formatted() for group in sorted(self.groups))
 
     class Config:
         '''
@@ -121,6 +117,7 @@ class SectionFormatter:
         '''
         def __init__(self, items, config):
             super().__init__()
+            self.rank = config.rank
             lookup = re.compile('|'.join('({})'.format(pattern) for pattern in config.patterns))
             for item in items:
                 item = self.Item(*item)
@@ -130,25 +127,34 @@ class SectionFormatter:
                     self[group].append(item)
 
         def __missing__(self, key):
-            return self.setdefault(key, self.Group(key))
+            return self.setdefault(key, self.Group(key, self.rank[key]))
 
         def collapse(self, func, dst='Other'):
             for key in {key for key, group in self.items() if func(group) and key != dst}:
                 if dst:
                     self[dst].extend(self[key])
                 del self[key]
+            return self
 
         class Group(list):
             '''
             Format a named group of items.
             '''
-            def __init__(self, name, *args, **kwargs):
+            def __init__(self, name, rank, *args, **kwargs):
                 self.name = name
+                self.rank = rank
                 return super().__init__(*args, **kwargs)
+
+            def __lt__(self, other):
+                return self.sort_key < other.sort_key
 
             @property
             def large(self):
                 return any(item.large for item in self)
+
+            @property
+            def sort_key(self):
+                return self.large, self.rank, self.name
 
             def formatted(self):
                 # Format and divide into single and multi line items.
