@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 
-import argparse
-import base64
-import configparser
 import collections
-import itertools
-import io
 import re
 import shlex
-import tarfile
 
 # Names to ignore
 ignore_names = re.compile(r'''
@@ -39,15 +33,15 @@ def parse_nvram_txt(nvram_txt):
         line
         value3
 
-    Return a set of name-value tuples.
+    Return an iterable of name-value tuples.
     '''
     nvram_txt = nvram_txt_epilogue.sub('', nvram_txt)
     _, *namevalues = nvram_txt_split.split(nvram_txt)
-    return set(zip(*[iter(namevalues)] * 2))
+    return zip(*[iter(namevalues)] * 2)
 
 def diff_files(input_name, base_name):
     '''
-    Return a set of items in input_name but not base_name.
+    Return a collection of items in input_name but not base_name.
     '''
     with open(input_name) as infile:
         input = parse_nvram_txt(infile.read())
@@ -56,10 +50,10 @@ def diff_files(input_name, base_name):
         with open(base_name) as infile:
             base = parse_nvram_txt(infile.read())
     
-        return input - base;
+        return frozenset(input).difference(base);
 
     else:
-        return input
+        return tuple(input)
 
 def write_script(items, outfile, config):
     '''
@@ -73,7 +67,7 @@ def write_script(items, outfile, config):
     '''
     # Collapse small groups.
     def collapse(group):
-        return config.rank[group.name] == len(config.names) and len(group) < 3
+        return group.rank == len(config.names) and len(group) < 3
 
     # Group items based on pattern matched.
     groups = Groups(items, config).collapse(collapse)
@@ -89,17 +83,6 @@ def write_script(items, outfile, config):
     # Commit
     outfile.write('# Save\nnvram commit\n')
 
-class Config:
-    '''
-    Group configuration from config.ini.
-    '''
-    def __init__(self, filename):
-        parser = configparser.ConfigParser()
-        parser.read(filename)
-        self.names, self.patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
-        self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
-        self.rank['Other'] = len(self.rank) + 1
-
 class Groups(collections.defaultdict):
     '''
     Container for groups/sections.
@@ -107,13 +90,10 @@ class Groups(collections.defaultdict):
     def __init__(self, items, config):
         super().__init__()
         self.rank = config.rank
-        lookup = re.compile('|'.join('({})'.format(pattern) for pattern in config.patterns))
         for item in items:
             item = self.Item(*item)
             if not ignore_names.match(item.name):
-                match = lookup.match(item.name)
-                group = config.names[match.lastindex - 1] if match else item.group
-                self[group].append(item)
+                self[config.group(item)].append(item)
 
     def __missing__(self, key):
         return self.setdefault(key, self.Group(key, self.rank[key]))
@@ -208,6 +188,9 @@ class Groups(collections.defaultdict):
         special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
         list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
+import base64
+import io
+import tarfile
 class HttpsCrtFile:
     '''
     Certificate and private key for HTTPS access.
@@ -234,12 +217,24 @@ nvram set https_crt_file="$(cd / && tar -czf - etc/*.pem | openssl enc -A -base6
 
 '''
 
-def bisect(items, predicate):
-    matches = collections.defaultdict(list)
-    for item in items:
-        matches[predicate(item)].append(item)
-    return matches[True], matches[False]
+import configparser
+class Config:
+    '''
+    Group configuration from config.ini.
+    '''
+    def __init__(self, filename):
+        parser = configparser.ConfigParser()
+        parser.read(filename)
+        self.names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
+        self.lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
+        self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
+        self.rank['Other'] = len(self.rank) + 1
 
+    def group(self, item):
+        match = self.lookup.match(item.name)
+        return self.names[match.lastindex - 1] if match else item.group
+
+import argparse
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('-i', '--input', default='nvram.txt', help='input filename')
