@@ -12,6 +12,10 @@ http_id         # HTTP ID
 |\w+_cache      # Cache
 ''', re.VERBOSE)
 
+def keep_item(item):
+    name, value = item
+    return not ignore_names.match(name)
+
 # Splits nvram.txt on names
 nvram_txt_split = re.compile(r'''
 (?:\n|^)            # Newline (or start of string)
@@ -37,7 +41,7 @@ def parse_nvram_txt(nvram_txt):
     '''
     nvram_txt = nvram_txt_epilogue.sub('', nvram_txt)
     _, *namevalues = nvram_txt_split.split(nvram_txt)
-    return zip(*[iter(namevalues)] * 2)
+    return filter(keep_item, zip(*[iter(namevalues)] * 2))
 
 def diff_files(input_name, base_name):
     '''
@@ -71,8 +75,6 @@ def write_script(items, outfile, config):
 
     # Group items based on pattern matched.
     groups = Groups(items, config).collapse(collapse)
-
-    # Sections
     outfile.write(groups.formatted())
 
     # Certificate
@@ -92,8 +94,7 @@ class Groups(collections.defaultdict):
         self.rank = config.rank
         for item in items:
             item = self.Item(*item)
-            if not ignore_names.match(item.name):
-                self[config.group(item)].append(item)
+            self[config.group(item)].append(item)
 
     def __missing__(self, key):
         return self.setdefault(key, self.Group(key, self.rank[key]))
@@ -195,9 +196,8 @@ class HttpsCrtFile:
     '''
     Certificate and private key for HTTPS access.
     '''
-    def __init__(self, https_crt_file, *args, **kwargs):
+    def __init__(self, https_crt_file):
         self.tarfile = tarfile.open(fileobj=io.BytesIO(base64.b64decode(https_crt_file)))
-        return super().__init__(*args, **kwargs)
 
     def getpem(self, name):
         return self.tarfile.extractfile('etc/{}.pem'.format(name)).read().decode().strip()
