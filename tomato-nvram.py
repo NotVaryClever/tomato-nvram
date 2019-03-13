@@ -7,7 +7,6 @@ import shlex
 # Names to ignore
 ignore_names = re.compile(r'''
 http_id         # HTTP ID
-|https_crt_file # HTTP Certificate
 |os_\w+         # OS Values
 |\w+_cache      # Cache
 ''', re.VERBOSE)
@@ -69,21 +68,24 @@ def write_script(items, outfile, config):
         line
         value3'
     '''
+    # Bypass special items.
+    items = dict(items)
+    crt_file = items.pop('https_crt_file', None)
+
     # Collapse small groups.
     def collapse(group):
         return group.rank == len(config.names) and len(group) < 3
 
     # Group items based on pattern matched.
-    groups = Groups(items, config).collapse(collapse)
+    groups = Groups(items.items(), config).collapse(collapse)
     outfile.write(groups.formatted())
 
     # Certificate
-    crt_file = dict(items).get('https_crt_file')
     if crt_file:
         outfile.write(HttpsCrtFile(crt_file).formatted())
 
     # Commit
-    outfile.write('# Save\nnvram commit\n')
+    outfile.write('\n# Save\nnvram commit\n')
 
 class Groups(collections.defaultdict):
     '''
@@ -214,7 +216,6 @@ echo '{key}' > /etc/key.pem
 
 # Tar Certificate & Key
 nvram set https_crt_file="$(cd / && tar -czf - etc/*.pem | openssl enc -A -base64)"
-
 '''
 
 import configparser
