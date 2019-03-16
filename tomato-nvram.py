@@ -132,15 +132,10 @@ class Groups(collections.defaultdict):
             return self.large, self.rank, self.name
 
         def formatted(self):
-            # Format and divide into single and multi line items.
             width = max(item.width for item in self)
-            newlines = collections.defaultdict(list)
-            for item in sorted(self):
-                newlines[bool(item.newlines)].append(item)
-            single, multi = ((item.formatted(width) for item in newlines[key]) for key in (False, True))
-
-            formatted = ''.join(single) + '\n'.join(multi)
-            return '# {}\n{}'.format(self.name, formatted)
+            single = (item.formatted(width) for item in sorted(self) if not item.newlines)
+            multi = (item.formatted(width) for item in sorted(self) if item.newlines)
+            return '# {}\n{}{}'.format(self.name, ''.join(single), '\n'.join(multi))
 
     class Item:
         '''
