@@ -114,7 +114,8 @@ class Groups(collections.defaultdict):
         return self
 
     def formatted(self):
-        return '\n'.join(group.formatted() for group in sorted(self.values()))
+        groups = sorted(self.values(), key=lambda group: group.sort_key)
+        return '\n'.join(group.formatted() for group in groups)
 
     class Group(list):
         '''
@@ -124,9 +125,6 @@ class Groups(collections.defaultdict):
             self.name = name
             self.rank = rank
             return super().__init__(*args, **kwargs)
-
-        def __lt__(self, other):
-            return self.sort_key < other.sort_key
 
         @property
         def large(self):
@@ -138,8 +136,9 @@ class Groups(collections.defaultdict):
 
         def formatted(self):
             width = max(item.width for item in self)
-            single = (item.formatted(width) for item in sorted(self) if not item.newlines)
-            multi = (item.formatted(width) for item in sorted(self) if item.newlines)
+            items = sorted(self, key=lambda item: item.sort_key)
+            single = (item.formatted(width) for item in items if not item.newlines)
+            multi  = (item.formatted(width) for item in items if     item.newlines)
             return '# {}\n{}{}'.format(self.name, ''.join(single), '\n'.join(multi))
 
     class Item:
@@ -159,9 +158,6 @@ class Groups(collections.defaultdict):
             self.sort_key = self.newlines, name.lower(), name
             self.width = len(self.command) if not self.newlines else 0
             self.large = self.newlines > 24 or self.width > 128
-
-        def __lt__(self, other):
-            return self.sort_key < other.sort_key
 
         def formatted(self, width=0):
             comment = None
