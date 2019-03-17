@@ -69,7 +69,7 @@ def write_script(items, outfile, config):
         value3'
     '''
     # Bypass special items.
-    crt_file = items.pop('https_crt_file', None)
+    crt_file = HttpsCrtFile.extract(items)
 
     # Group items based on pattern matched.
     groups = Groups(items.items(), config)
@@ -82,7 +82,7 @@ def write_script(items, outfile, config):
 
     # Certificate
     if crt_file:
-        outfile.write(HttpsCrtFile(crt_file).formatted())
+        outfile.write(crt_file.formatted())
 
     # Commit
     outfile.write('\n# Save\nnvram commit\n')
@@ -193,9 +193,15 @@ import tarfile
 class HttpsCrtFile:
     '''
     Certificate and private key for HTTPS access.
-    '''
+    ''' 
     def __init__(self, https_crt_file):
         self.tarfile = tarfile.open(fileobj=io.BytesIO(base64.b64decode(https_crt_file)))
+
+    @classmethod
+    def extract(cls, items):
+        crt_file = items.pop('https_crt_file', None)
+        if crt_file:
+            return cls(crt_file)
 
     def getpem(self, name):
         return self.tarfile.extractfile('etc/{}.pem'.format(name)).read().decode().strip()
