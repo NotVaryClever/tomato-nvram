@@ -44,7 +44,7 @@ def parse_nvram_txt(nvram_txt):
 
 def diff_files(input_name, base_name):
     '''
-    Return a collection of items in input_name but not base_name.
+    Return a mapping of items in input_name but not base_name.
     '''
     with open(input_name) as infile:
         input = parse_nvram_txt(infile.read())
@@ -53,10 +53,10 @@ def diff_files(input_name, base_name):
         with open(base_name) as infile:
             base = parse_nvram_txt(infile.read())
     
-        return frozenset(input).difference(base);
+        return dict(set(input).difference(base))
 
     else:
-        return tuple(input)
+        return dict(input)
 
 def write_script(items, outfile, config):
     '''
@@ -69,7 +69,6 @@ def write_script(items, outfile, config):
         value3'
     '''
     # Bypass special items.
-    items = dict(items)
     crt_file = items.pop('https_crt_file', None)
 
     # Collapse small groups.
@@ -249,8 +248,9 @@ def main(args):
     except FileNotFoundError as error:
         print(error)
         parser.print_help()
+        return
 
-    else:
+    if diff:
         # Load conifg.
         config = Config(args.config)
 
@@ -259,6 +259,9 @@ def main(args):
             write_script(diff, outfile, config)
 
         print('{:,} values written to {}'.format(len(diff), args.output))
+
+    else:
+        print('No differences found.')
 
 if __name__ == '__main__':
     import sys
