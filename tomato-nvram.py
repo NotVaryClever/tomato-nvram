@@ -71,12 +71,13 @@ def write_script(items, outfile, config):
     # Bypass special items.
     crt_file = items.pop('https_crt_file', None)
 
-    # Collapse small groups.
-    def collapse(group):
-        return group.rank == len(config.names) and len(group) < 3
-
     # Group items based on pattern matched.
-    groups = Groups(items.items(), config).collapse(collapse)
+    groups = Groups(items.items(), config)
+
+    # Collapse small groups.
+    groups.collapse()
+
+    # Write groups.
     outfile.write(groups.formatted())
 
     # Certificate
@@ -92,16 +93,21 @@ class Groups(collections.defaultdict):
     '''
     def __init__(self, items, config):
         super().__init__()
-        self.rank = config.rank
+        self.config = config
         for item in items:
             item = self.Item(*item)
             self[config.group(item)].append(item)
 
     def __missing__(self, key):
-        return self.setdefault(key, self.Group(key, self.rank[key]))
+        return self.setdefault(key, self.Group(key, self.config.rank[key]))
 
-    def collapse(self, func, dst='Other'):
-        for key in {key for key, group in self.items() if func(group) and key != dst}:
+    def collapse(self, minsize=3, dst='Other'):
+        '''
+        Collapse groups smaller than minsize into a group named dst.
+        '''
+        def collapsible(group):
+            return self.config.collapsible(group) and len(group) < minsize
+        for key in {key for key, group in self.items() if collapsible(group) and key != dst}:
             if dst:
                 self[dst].extend(self[key])
             del self[key]
@@ -228,6 +234,9 @@ class Config:
     def group(self, item):
         match = self.lookup.match(item.name)
         return self.names[match.lastindex - 1] if match else item.group
+
+    def collapsible(self, group):
+        return group.rank == len(self.names)
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
