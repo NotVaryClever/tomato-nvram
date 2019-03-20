@@ -162,7 +162,7 @@ class Item:
 
         self.command = 'nvram set {}={}'.format(name, self.quoted(value))
         self.newlines = self.command.count('\n')
-        self.sort_key = self.newlines, name.lower(), name
+        self.sort_key = self.newlines, name.lower().replace('_', ' ')
         self.width = len(self.command) if not self.newlines else 0
         self.large = self.newlines > 24 or self.width > 128
 
