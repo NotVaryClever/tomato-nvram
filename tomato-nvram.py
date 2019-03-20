@@ -69,6 +69,7 @@ def write_script(items, outfile, config):
         value3'
     '''
     # Bypass special items.
+    wireless = dedup_wireless(items, config)
     crt_file = HttpsCrtFile.extract(items)
 
     # Group items based on pattern matched.
@@ -76,6 +77,10 @@ def write_script(items, outfile, config):
 
     # Collapse small groups.
     groups.collapse()
+
+    # Dedup wireless.
+    if wireless:
+        groups[wireless.name] = wireless
 
     # Write groups.
     outfile.write(groups.formatted())
@@ -95,11 +100,11 @@ class Groups(collections.defaultdict):
         super().__init__()
         self.config = config
         for item in items:
-            item = self.Item(*item)
+            item = Item(*item)
             self[config.group(item)].append(item)
 
     def __missing__(self, key):
-        return self.setdefault(key, self.Group(key, self.config.rank[key]))
+        return self.setdefault(key, Group(key, self.config.rank[key]))
 
     def collapse(self, minsize=3, dst='Other'):
         '''
@@ -117,75 +122,99 @@ class Groups(collections.defaultdict):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
         return '\n'.join(group.formatted() for group in groups)
 
-    class Group(list):
-        '''
-        Format a named group of items.
-        '''
-        def __init__(self, name, rank, *args, **kwargs):
-            self.name = name
-            self.rank = rank
-            return super().__init__(*args, **kwargs)
+class Group(list):
+    '''
+    Format a named group of items.
+    '''
+    def __init__(self, name, rank, prefix=None, suffix=None):
+        super().__init__()
+        self.name = name
+        self.rank = rank
+        self.prefix = prefix + '\n' if prefix else ''
+        self.suffix = suffix + '\n' if suffix else ''
 
-        @property
-        def large(self):
-            return any(item.large for item in self)
+    @property
+    def large(self):
+        return any(item.large for item in self)
 
-        @property
-        def sort_key(self):
-            return self.large, self.rank, self.name
+    @property
+    def sort_key(self):
+        return self.large, self.rank, self.name
 
-        def formatted(self):
-            width = max(item.width for item in self)
-            items = sorted(self, key=lambda item: item.sort_key)
-            single = (item.formatted(width) for item in items if not item.newlines)
-            multi  = (item.formatted(width) for item in items if     item.newlines)
-            return '# {}\n{}{}'.format(self.name, ''.join(single), '\n'.join(multi))
+    def formatted(self):
+        width = max(item.width for item in self)
+        items = sorted(self, key=lambda item: item.sort_key)
+        single = (item.formatted(width) for item in items if not item.newlines)
+        multi  = (item.formatted(width) for item in items if     item.newlines)
+        return '# {}\n{}{}{}{}'.format(self.name, self.prefix, ''.join(single), '\n'.join(multi), self.suffix)
 
-    class Item:
-        '''
-        Format a single item.
-        '''
-        def __init__(self, name, value):
-            self.name = name
-            self.value = value
+class Item:
+    '''
+    Format a single item.
+    '''
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
 
-            parts = tuple(self.capitalize(part) for part in name.split('_'))
-            self.group = parts[0] if len(parts) > 1 else 'Other'
-            self.comment = parts[-1]
+        parts = tuple(self.capitalize(part) for part in name.split('_'))
+        self.group = parts[0] if len(parts) > 1 else 'Other'
+        self.comment = parts[-1]
 
-            self.command = 'nvram set {}={}'.format(name, self.quoted(value))
-            self.newlines = self.command.count('\n')
-            self.sort_key = self.newlines, name.lower(), name
-            self.width = len(self.command) if not self.newlines else 0
-            self.large = self.newlines > 24 or self.width > 128
+        self.command = 'nvram set {}={}'.format(name, self.quoted(value))
+        self.newlines = self.command.count('\n')
+        self.sort_key = self.newlines, name.lower(), name
+        self.width = len(self.command) if not self.newlines else 0
+        self.large = self.newlines > 24 or self.width > 128
 
-        def formatted(self, width=0):
-            comment = None
-            if comment:
-                if self.newlines:
-                    return '\n# {}\n{}\n'.format(comment, self.command)
-                else:
-                    return '{:<{}} # {}\n'.format(self.command, width, comment)
+    def formatted(self, width=0):
+        comment = None
+        if comment:
+            if self.newlines:
+                return '\n# {}\n{}\n'.format(comment, self.command)
             else:
-                return '{}\n'.format(self.command)
+                return '{:<{}} # {}\n'.format(self.command, width, comment)
+        else:
+            return '{}\n'.format(self.command)
 
-        @staticmethod
-        def capitalize(part):
-            return part.capitalize() if len(part) > 4 else part.upper()
+    @staticmethod
+    def capitalize(part):
+        return part.capitalize() if len(part) > 4 else part.upper()
 
-        @classmethod
-        def quoted(cls, value):
-            if "'" in value:
-                return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
-            if not cls.special_chars.search(value):
-                if cls.list_break.search(value) and '\n' not in value:
-                    return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
-                if '\n' in value:
-                    return '"\\\n{}"'.format(value)
-            return shlex.quote(value) if value else value
+    @classmethod
+    def quoted(cls, value):
+        if "'" in value:
+            return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
+        if not cls.special_chars.search(value):
+            if cls.list_break.search(value) and '\n' not in value:
+                return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
+            if '\n' in value:
+                return '"\\\n{}"'.format(value)
+        return shlex.quote(value) if value else value
 
-        special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
-        list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
+    special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
+    list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
+
+def dedup_wireless(items, config):
+    groups = collections.defaultdict(set)
+    originals = collections.defaultdict(set)
+    for name, value in items.items():
+        match = re.match(r'wl\d+', name)
+        if match:
+            wl_name = '${wl}' + name[match.end():]
+            item = wl_name, value
+            groups[match.group()].add(item)
+            originals[wl_name].add(name)
+    if len(groups) > 1:
+        wireless=set.intersection(*groups.values())
+        if wireless:
+            prefix='for wl in {}\ndo'.format(' '.join(sorted(groups)))
+            group = Group('Wireless', config.getrank(''), prefix=prefix, suffix='done')
+            for wl_name, value in wireless:
+                group.append(Item(wl_name, value))
+                for original in originals[wl_name]:
+                    group.rank = min(group.rank, config.getrank(original))
+                    del items[original]
+            return group
 
 import base64
 import io
@@ -239,6 +268,10 @@ class Config:
 
     def collapsible(self, group):
         return group.rank == len(self.names)
+
+    def getrank(self, itemname):
+        match = self.lookup.match(itemname)
+        return self.rank[self.names[match.lastindex - 1]] if match else len(self.names)
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
