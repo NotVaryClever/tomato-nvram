@@ -69,7 +69,6 @@ def write_script(items, outfile, config):
         value3'
     '''
     # Bypass special items.
-    wireless = dedup_wireless(items, config)
     crt_file = HttpsCrtFile.extract(items)
 
     # Group items based on pattern matched.
@@ -79,8 +78,7 @@ def write_script(items, outfile, config):
     groups.collapse()
 
     # Dedup wireless.
-    if wireless:
-        groups[wireless.name] = wireless
+    groups.dedup()
 
     # Write groups.
     outfile.write(groups.formatted())
@@ -118,6 +116,33 @@ class Groups(collections.defaultdict):
             del self[key]
         return self
 
+    def dedup(self, dst='Wireless', prefix='wl', minsize=3):
+        '''
+        Factor out common settings.
+        '''
+        groups = collections.defaultdict(set)
+        cleanup = collections.defaultdict(list)
+        pattern = re.compile(r'{}\d+'.format(prefix))
+        repl = '${{{}}}'.format(prefix)
+        for group in self.values():
+            for item in group:
+                match = pattern.match(item.name)
+                if match:
+                    loop_name = pattern.sub(repl, item.name)
+                    groups[match.group()].add(item.__class__(loop_name, item.value))
+                    cleanup[loop_name].append((group, item))
+        common=set.intersection(*groups.values())
+        if len(common) > minsize and len(groups) > 1:
+            group = self[dst]
+            group.prefix = 'for {} in {}\ndo'.format(prefix, ' '.join(sorted(groups)))
+            group.suffix = 'done'
+            group.extend(common)
+            for item in common:
+                for group, item in cleanup[item.name]:
+                    group.remove(item)
+                    if not group:
+                        del self[group.name]
+
     def formatted(self):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
         return '\n'.join(group.formatted() for group in groups)
@@ -130,8 +155,8 @@ class Group(list):
         super().__init__()
         self.name = name
         self.rank = rank
-        self.prefix = prefix + '\n' if prefix else ''
-        self.suffix = suffix + '\n' if suffix else ''
+        self.prefix = prefix
+        self.suffix = suffix
 
     @property
     def large(self):
@@ -143,10 +168,12 @@ class Group(list):
 
     def formatted(self):
         width = max(item.width for item in self)
-        items = sorted(self, key=lambda item: item.sort_key)
+        items = sorted(self)
         single = (item.formatted(width) for item in items if not item.newlines)
         multi  = (item.formatted(width) for item in items if     item.newlines)
-        return '# {}\n{}{}{}{}'.format(self.name, self.prefix, ''.join(single), '\n'.join(multi), self.suffix)
+        prefix = self.prefix + '\n' if self.prefix else ''
+        suffix = self.suffix + '\n' if self.suffix else ''
+        return '# {}\n{}{}{}{}'.format(self.name, prefix, ''.join(single), '\n'.join(multi), suffix)
 
 class Item:
     '''
@@ -155,6 +182,7 @@ class Item:
     def __init__(self, name, value):
         self.name = name
         self.value = value
+        self.__key = name, value
 
         parts = tuple(self.capitalize(part) for part in name.split('_'))
         self.group = parts[0] if len(parts) > 1 else 'Other'
@@ -165,6 +193,18 @@ class Item:
         self.sort_key = self.newlines, name.lower().replace('_', ' ')
         self.width = len(self.command) if not self.newlines else 0
         self.large = self.newlines > 24 or self.width > 128
+
+    def __eq__(self, other):
+        return self.__key == other.__key
+
+    def __hash__(self):
+        return hash(self.__key)
+
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+    def __repr__(self):
+        return '{}={}'.format(self.name, self.value)
 
     def formatted(self, width=0):
         comment = None
@@ -194,28 +234,6 @@ class Item:
     special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
     list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
-def dedup_wireless(items, config):
-    groups = collections.defaultdict(set)
-    originals = collections.defaultdict(set)
-    for name, value in items.items():
-        match = re.match(r'wl\d+', name)
-        if match:
-            wl_name = '${wl}' + name[match.end():]
-            item = wl_name, value
-            groups[match.group()].add(item)
-            originals[wl_name].add(name)
-    if len(groups) > 1:
-        wireless=set.intersection(*groups.values())
-        if wireless:
-            prefix='for wl in {}\ndo'.format(' '.join(sorted(groups)))
-            group = Group('Wireless', config.getrank(''), prefix=prefix, suffix='done')
-            for wl_name, value in wireless:
-                group.append(Item(wl_name, value))
-                for original in originals[wl_name]:
-                    group.rank = min(group.rank, config.getrank(original))
-                    del items[original]
-            return group
-
 import base64
 import io
 import tarfile
@@ -229,8 +247,7 @@ class HttpsCrtFile:
     @classmethod
     def extract(cls, items):
         crt_file = items.pop('https_crt_file', None)
-        if crt_file:
-            return cls(crt_file)
+        return crt_file and cls(crt_file)
 
     def getpem(self, name):
         return self.tarfile.extractfile('etc/{}.pem'.format(name)).read().decode().strip()
