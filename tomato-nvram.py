@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
-import collections
 import re
-import shlex
 
 # Names to ignore
 ignore_names = re.compile(r'''
@@ -78,7 +76,7 @@ def write_script(items, outfile, config):
     groups.collapse()
 
     # Dedup wireless.
-    groups.dedup()
+    groups.dedup('wl')
 
     # Write groups.
     outfile.write(groups.formatted())
@@ -90,6 +88,9 @@ def write_script(items, outfile, config):
     # Commit
     outfile.write('\n# Save\nnvram commit\n')
 
+import collections
+import os.path
+import string
 class Groups(collections.defaultdict):
     '''
     Container for groups/sections.
@@ -116,32 +117,36 @@ class Groups(collections.defaultdict):
             del self[key]
         return self
 
-    def dedup(self, dst='Wireless', prefix='wl', minsize=3):
+    def dedup(self, prefix, dst=None, minsize=3):
         '''
         Factor out common settings.
         '''
-        groups = collections.defaultdict(set)
-        cleanup = collections.defaultdict(list)
-        pattern = re.compile(r'{}\d+'.format(prefix))
-        repl = '${{{}}}'.format(prefix)
-        for group in self.values():
-            for item in group:
-                match = pattern.match(item.name)
-                if match:
-                    loop_name = pattern.sub(repl, item.name)
-                    groups[match.group()].add(item.__class__(loop_name, item.value))
-                    cleanup[loop_name].append((group, item))
-        common=set.intersection(*groups.values())
-        if len(common) > minsize and len(groups) > 1:
-            group = self[dst]
-            group.prefix = 'for {} in {}\ndo'.format(prefix, ' '.join(sorted(groups)))
-            group.suffix = 'done'
-            group.extend(common)
-            for item in common:
-                for group, item in cleanup[item.name]:
-                    group.remove(item)
-                    if not group:
-                        del self[group.name]
+        for pattern in (re.compile(r'{}\d{}'.format(prefix, rep)) for rep in '*+'):
+            matching = collections.defaultdict(set)
+            cleanup = collections.defaultdict(list)
+            repl = '${{{}}}'.format(prefix)
+            for group in self.values():
+                for item in group:
+                    match = pattern.match(item.name)
+                    if match:
+                        loop_name = pattern.sub(repl, item.name)
+                        matching[match.group()].add(item.__class__(loop_name, item.value))
+                        cleanup[loop_name].append((group, item))
+            common=set.intersection(*matching.values())
+            if len(common) > minsize and len(matching) > 1:
+                names = list(group.name for item in common for group, _ in cleanup[item.name])
+                dst = dst or os.path.commonprefix(names).strip(string.punctuation + string.whitespace)
+                group = Group(dst, self.config.rank[dst], common,
+                              prefix='for {} in {}\ndo'.format(prefix, ' '.join(sorted(matching))),
+                              suffix='done')
+                self[id(group)] = group
+                for item in common:
+                    for group, item in cleanup[item.name]:
+                        group.remove(item)
+                        if not group:
+                            del self[group.name]
+            else:
+                break
 
     def formatted(self):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
@@ -151,8 +156,8 @@ class Group(list):
     '''
     Format a named group of items.
     '''
-    def __init__(self, name, rank, prefix=None, suffix=None):
-        super().__init__()
+    def __init__(self, name, rank, *args, prefix=None, suffix=None, **kwargs):
+        super().__init__(*args, **kwargs)
         self.name = name
         self.rank = rank
         self.prefix = prefix
@@ -175,6 +180,7 @@ class Group(list):
         suffix = self.suffix + '\n' if self.suffix else ''
         return '# {}\n{}{}{}{}'.format(self.name, prefix, ''.join(single), '\n'.join(multi), suffix)
 
+import shlex
 class Item:
     '''
     Format a single item.
@@ -319,7 +325,7 @@ def main(args):
         with open(args.output, 'w') as outfile:
             write_script(diff, outfile, config)
 
-        print('{:,} values written to {}'.format(len(diff), args.output))
+        print('{:,} settings written to {}'.format(len(diff), args.output))
 
     else:
         print('No differences found.')
