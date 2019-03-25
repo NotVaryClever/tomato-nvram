@@ -125,13 +125,11 @@ class Groups(collections.defaultdict):
             matching = collections.defaultdict(set)
             cleanup = collections.defaultdict(list)
             repl = '${{{}}}'.format(prefix)
-            for group in self.values():
-                for item in group:
-                    match = pattern.match(item.name)
-                    if match:
-                        loop_name = pattern.sub(repl, item.name)
-                        matching[match.group()].add(item.__class__(loop_name, item.value))
-                        cleanup[loop_name].append((group, item))
+            for item, match, group in self.find(pattern):
+                loop_name = pattern.sub(repl, item.name)
+                loop_item = item.__class__(loop_name, item.value)
+                matching[match.group()].add(loop_item)
+                cleanup[loop_name].append((group, item))
             common=set.intersection(*matching.values())
             if len(common) > minsize and len(matching) > 1:
                 names = list(group.name for item in common for group, _ in cleanup[item.name])
@@ -147,6 +145,13 @@ class Groups(collections.defaultdict):
                             del self[group.name]
             else:
                 break
+
+    def find(self, pattern):
+        for group in self.values():
+            for item in group:
+                match = pattern.match(item.name)
+                if match:
+                    yield item, match, group
 
     def formatted(self):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
