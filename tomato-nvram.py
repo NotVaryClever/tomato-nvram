@@ -90,8 +90,6 @@ def write_script(items, outfile, config):
     outfile.write('\n# Save\nnvram commit\n')
 
 import collections
-import os.path
-import string
 class Groups(collections.defaultdict):
     '''
     Container for groups/sections.
@@ -122,54 +120,11 @@ class Groups(collections.defaultdict):
         '''
         Factor out common settings.
         '''
-        pattern = re.compile(r'{}\d*'.format(prefix))
-        while True:
-            key_to_prefixes = collections.defaultdict(set)
-            key_to_group_and_item_tuples = collections.defaultdict(list)
-            for match, item, group in self.find(pattern):
-                key = item.name[match.end():], item.value
-                key_to_prefixes[key].add(item.prefix)
-                key_to_group_and_item_tuples[key].append((group, item))
-
-            prefixes_to_keys = collections.defaultdict(set)
-            for key, prefixes in key_to_prefixes.items():
-                for combo in powerset(prefixes, 2):
-                    prefixes_to_keys[frozenset(combo)].add(key)
-
-            if prefixes_to_keys:
-                prefixes, keys = max(prefixes_to_keys.items(), key=self.lines_saved)
-                if len(keys) >= minsize and self.lines_saved((prefixes,keys)) > 0:
-                    names = list(group.name for key in keys for group, _ in key_to_group_and_item_tuples[key])
-                    dst = dst or os.path.commonprefix(names).strip(string.punctuation + string.whitespace)
-                    prefix = os.path.commonprefix(list(prefixes))
-                    items = (item.__class__('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
-                    group = Group(dst, self.config.rank[dst], items,
-                                    prefix='for {} in {}\ndo'.format(prefix, ' '.join(sorted(prefixes))),
-                                    suffix='done')
-                    self[id(group)] = group
-                    for key in keys:
-                        for group, item in key_to_group_and_item_tuples[key]:
-                            group.remove(item)
-                            if not group:
-                                del self[group.name]
-                    continue
-            return
-
-    def find(self, pattern):
-        for group in self.values():
-            for item in group:
-                match = pattern.match(item.name)
-                if match:
-                    yield match, item, group
+        Deduper(prefix, self, self.config).dedup(dst, minsize)
 
     def formatted(self):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
         return '\n'.join(group.formatted() for group in groups)
-
-    @staticmethod
-    def lines_saved(item):
-        prefixes, items = item
-        return (len(prefixes) - 1) * len(items) - 5
 
 class Group(list):
     '''
@@ -260,6 +215,69 @@ class Item:
     special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
     list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
+import itertools
+import os.path
+import string
+class Deduper:
+    def __init__(self, prefix, groups, config):
+        self.groups = groups
+        self.pattern = re.compile(r'{}\d*'.format(prefix))
+        self.config = config
+
+    def dedup(self, dst=None, minsize=3):
+        while True:
+            key_to_prefixes = collections.defaultdict(set)
+            key_to_group_and_item_tuples = collections.defaultdict(list)
+            for match, item, group in self.matching():
+                key = item.name[match.end():], item.value
+                key_to_prefixes[key].add(item.prefix)
+                key_to_group_and_item_tuples[key].append((group, item))
+
+            prefixes_to_keys = collections.defaultdict(set)
+            for key, prefixes in key_to_prefixes.items():
+                for combo in self.powerset(prefixes, 2):
+                    prefixes_to_keys[combo].add(key)
+
+            if prefixes_to_keys:
+                prefixes, keys = max(prefixes_to_keys.items(), key=self.lines_saved)
+                if len(keys) >= minsize and self.lines_saved((prefixes,keys)) > 0:
+                    names = list(group.name for key in keys for group, _ in key_to_group_and_item_tuples[key])
+                    dst = dst or os.path.commonprefix(names).strip(string.punctuation + string.whitespace)
+                    group = self.group(dst, prefixes, keys)
+                    self.groups[id(group)] = group
+                    for key in keys:
+                        for group, item in key_to_group_and_item_tuples[key]:
+                            group.remove(item)
+                            if not group:
+                                del self.groups[group.name]
+                    continue
+            return
+
+    def group(self, name, prefixes, keys):
+        prefix = os.path.commonprefix(list(prefixes))
+        items = (Item('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
+        return Group(name, self.config.rank[name], items,
+                     prefix='for {} in {}\ndo'.format(prefix, ' '.join(sorted(prefixes))),
+                     suffix='done')
+
+    def matching(self):
+        for group in self.groups.values():
+            for item in group:
+                match = self.pattern.match(item.name)
+                if match:
+                    yield match, item, group
+
+    @staticmethod
+    def lines_saved(item):
+        prefixes, items = item
+        return (len(prefixes) - 1) * len(items) - 5
+
+    @staticmethod
+    def powerset(iterable, start=0):
+        "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+        s = list(iterable)
+        return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
+
 import base64
 import io
 import tarfile
@@ -315,12 +333,6 @@ class Config:
     def getrank(self, itemname):
         match = self.lookup.match(itemname)
         return self.rank[self.names[match.lastindex - 1]] if match else len(self.names)
-
-import itertools
-def powerset(iterable, start=0):
-    "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
-    s = list(iterable)
-    return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
