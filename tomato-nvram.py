@@ -89,8 +89,8 @@ def write_script(items, outfile, config):
     # Commit
     outfile.write('\n# Save\nnvram commit\n')
 
-import collections
-class Groups(collections.defaultdict):
+from collections import defaultdict
+class Groups(defaultdict):
     '''
     Container for groups/sections.
     '''
@@ -215,6 +215,7 @@ class Item:
     special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
     list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
 
+from functools import partial
 import itertools
 import os.path
 import string
@@ -226,14 +227,16 @@ class Deduper:
 
     def dedup(self, dst=None, minsize=3):
         while True:
-            key_to_prefixes = collections.defaultdict(set)
-            key_to_group_and_item_tuples = collections.defaultdict(list)
+            key_to_prefixes = defaultdict(set)
+            key_to_group_names = defaultdict(list)
+            key_to_remove = defaultdict(list)
             for match, item, group in self.matching():
                 key = item.name[match.end():], item.value
                 key_to_prefixes[key].add(item.prefix)
-                key_to_group_and_item_tuples[key].append((group, item))
+                key_to_group_names[key].append(group.name)
+                key_to_remove[key].append(partial(self.remove, group, item))
 
-            prefixes_to_keys = collections.defaultdict(set)
+            prefixes_to_keys = defaultdict(set)
             for key, prefixes in key_to_prefixes.items():
                 for combo in self.powerset(prefixes, 2):
                     prefixes_to_keys[combo].add(key)
@@ -241,23 +244,20 @@ class Deduper:
             if prefixes_to_keys:
                 prefixes, keys = max(prefixes_to_keys.items(), key=self.lines_saved)
                 if len(keys) >= minsize and self.lines_saved((prefixes,keys)) > 0:
-                    names = list(group.name for key in keys for group, _ in key_to_group_and_item_tuples[key])
-                    dst = dst or os.path.commonprefix(names).strip(string.punctuation + string.whitespace)
+                    names = (name for key in keys for name in key_to_group_names[key])
+                    dst = dst or self.commonprefix(names)
                     group = self.group(dst, prefixes, keys)
                     self.groups[id(group)] = group
-                    for key in keys:
-                        for group, item in key_to_group_and_item_tuples[key]:
-                            group.remove(item)
-                            if not group:
-                                del self.groups[group.name]
+                    [func() for key in keys for func in key_to_remove[key]]
                     continue
             return
 
     def group(self, name, prefixes, keys):
         prefix = os.path.commonprefix(list(prefixes))
         items = (Item('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
+        prefixes = ' '.join(sorted(prefixes))
         return Group(name, self.config.rank[name], items,
-                     prefix='for {} in {}\ndo'.format(prefix, ' '.join(sorted(prefixes))),
+                     prefix='for {} in {}\ndo'.format(prefix, prefixes),
                      suffix='done')
 
     def matching(self):
@@ -266,6 +266,15 @@ class Deduper:
                 match = self.pattern.match(item.name)
                 if match:
                     yield match, item, group
+
+    def remove(self, group, item):
+        group.remove(item)
+        if not group:
+            del self.groups[group.name]
+
+    @staticmethod
+    def commonprefix(names):
+        return os.path.commonprefix(list(names)).strip(string.punctuation + string.whitespace)
 
     @staticmethod
     def lines_saved(item):
@@ -320,7 +329,7 @@ class Config:
         parser.read(filename)
         self.names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
         self.lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
-        self.rank = collections.defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
+        self.rank = defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
         self.rank['Other'] = len(self.rank) + 1
 
     def group(self, item):
