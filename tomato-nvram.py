@@ -245,8 +245,7 @@ class Deduper:
                 prefixes, keys = max(prefixes_to_keys.items(), key=self.lines_saved)
                 if len(keys) >= minsize and self.lines_saved((prefixes,keys)) > 0:
                     names = (name for key in keys for name in key_to_group_names[key])
-                    dst = dst or self.commonprefix(names)
-                    group = self.group(dst, prefixes, keys)
+                    group = self.group(dst or self.commonprefix(names), prefixes, keys)
                     self.groups[id(group)] = group
                     [func() for key in keys for func in key_to_remove[key]]
                     continue
