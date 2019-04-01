@@ -227,14 +227,14 @@ class Deduper:
         prefix_to_keys = defaultdict(set)
         removes = dict()
         group_names = dict()
-        for match, item, group in self.matching():
+        for item, group, match in self.matching():
             key = item.name[match.end():], item.value
             prefix = match.group()
             prefix_to_keys[prefix].add(key)
             group_names[prefix, key] = group.name
             removes[prefix, key] = partial(self.remove, group, item)
-
         lines_saved = partial(self.lines_saved, prefix_to_keys)
+
         for prefixes in sorted(self.prefix_groups(prefix_to_keys), key=lines_saved, reverse=True):
             keys = self.commonkeys(prefixes, prefix_to_keys)
             if len(keys) >= minsize and lines_saved(prefixes):
@@ -259,7 +259,7 @@ class Deduper:
             for item in group:
                 match = self.pattern.match(item.name)
                 if match:
-                    yield match, item, group
+                    yield item, group, match
 
     def remove(self, group, item):
         group.remove(item)
@@ -287,7 +287,9 @@ class Deduper:
 
     @classmethod
     def prefix_groups(cls, prefixes, minsize=2):
-        return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in itertools.groupby(sorted(prefixes), key=lambda prefix:prefix[0:minsize]))
+        key = lambda item: item[0:minsize]
+        grouped = itertools.groupby(sorted(prefixes), key)
+        return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in grouped)
 
     pattern = re.compile(r'[a-z]+\d*(?=_)')
 
