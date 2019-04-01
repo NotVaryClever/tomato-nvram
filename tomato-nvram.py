@@ -75,9 +75,8 @@ def write_script(items, outfile, config):
     # Collapse small groups.
     groups.collapse()
 
-    # Dedup wireless and WAN.
-    groups.dedup('wl')
-    groups.dedup('wan')
+    # Dedup repeated settings.
+    groups.dedup()
 
     # Write groups.
     outfile.write(groups.formatted())
@@ -116,11 +115,11 @@ class Groups(defaultdict):
             del self[key]
         return self
 
-    def dedup(self, prefix, dst=None, minsize=3):
+    def dedup(self, minsize=3):
         '''
         Factor out common settings.
         '''
-        Deduper(prefix, self, self.config).dedup(dst, minsize)
+        Deduper(self, self.config).dedup(minsize)
 
     def formatted(self):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
@@ -164,8 +163,8 @@ class Item:
         self.value = value
         self.__key = name, value
 
-        parts = name.split('_')
-        self.prefix = parts[0] if len(parts) > 1 else ''
+        parts = re.split('_|:', name)
+        self.prefix = parts[0] if len(parts) > 1 else re.match('[a-z]*', name).group()
         self.suffix = parts[-1]
         self.group = self.capitalize(self.prefix)
 
@@ -220,39 +219,36 @@ import itertools
 import os.path
 import string
 class Deduper:
-    def __init__(self, prefix, groups, config):
+    def __init__(self, groups, config):
         self.groups = groups
-        self.pattern = re.compile(r'{}\d*'.format(prefix))
         self.config = config
 
-    def dedup(self, dst=None, minsize=3):
+    def dedup(self, minsize=3):
         while True:
-            key_to_prefixes = defaultdict(set)
-            key_to_group_names = defaultdict(list)
+            prefix_to_keys = defaultdict(set)
             key_to_remove = defaultdict(list)
+            prefix_and_key_to_group_name = dict()
             for match, item, group in self.matching():
                 key = item.name[match.end():], item.value
-                key_to_prefixes[key].add(item.prefix)
-                key_to_group_names[key].append(group.name)
+                prefix = match.group()
+                prefix_to_keys[prefix].add(key)
+                prefix_and_key_to_group_name[prefix, key] = group.name
                 key_to_remove[key].append(partial(self.remove, group, item))
 
-            prefixes_to_keys = defaultdict(set)
-            for key, prefixes in key_to_prefixes.items():
-                for combo in self.powerset(prefixes, 2):
-                    prefixes_to_keys[combo].add(key)
-
-            if prefixes_to_keys:
-                prefixes, keys = max(prefixes_to_keys.items(), key=self.lines_saved)
-                if len(keys) >= minsize and self.lines_saved((prefixes,keys)) > 0:
-                    names = (name for key in keys for name in key_to_group_names[key])
-                    group = self.group(dst or self.commonprefix(names), prefixes, keys)
-                    self.groups[id(group)] = group
-                    [func() for key in keys for func in key_to_remove[key]]
-                    continue
+            by_first_letter = itertools.groupby(sorted(prefix_to_keys), key=lambda prefix:prefix[0])
+            lines_saved = partial(self.lines_saved, prefix_to_keys)
+            prefixes = max(itertools.chain.from_iterable(self.powerset(prefixes, 2) for _, prefixes in by_first_letter), key=lines_saved)
+            keys = self.commonkeys(prefixes, prefix_to_keys)
+            if len(keys) >= minsize and lines_saved(prefixes):
+                names = set(prefix_and_key_to_group_name[prefix, key] for prefix in prefixes for key in keys)
+                group = self.group(self.commonprefix(names), prefixes, keys)
+                self.groups[id(group)] = group
+                [func() for key in keys for func in key_to_remove[key]]
+                continue
             return
 
     def group(self, name, prefixes, keys):
-        prefix = os.path.commonprefix(list(prefixes))
+        prefix = self.commonprefix(prefixes)
         items = (Item('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
         prefixes = ' '.join(sorted(prefixes))
         return Group(name, self.config.rank[name], items,
@@ -271,20 +267,27 @@ class Deduper:
         if not group:
             del self.groups[group.name]
 
+
+    @staticmethod
+    def commonkeys(prefixes, prefix_to_keys):
+        return set.intersection(*(prefix_to_keys[prefix] for prefix in prefixes))
+
     @staticmethod
     def commonprefix(names):
         return os.path.commonprefix(list(names)).strip(string.punctuation + string.whitespace)
 
-    @staticmethod
-    def lines_saved(item):
-        prefixes, items = item
-        return (len(prefixes) - 1) * len(items) - 5
+    @classmethod
+    def lines_saved(cls, prefix_to_keys, prefixes):
+        keys = cls.commonkeys(prefixes, prefix_to_keys)
+        return (len(prefixes) - 1) * len(keys) - 5
 
     @staticmethod
     def powerset(iterable, start=0):
         "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
         s = list(iterable)
         return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
+
+    pattern = re.compile(r'[a-z]+\d*(?=_)')
 
 import base64
 import io
