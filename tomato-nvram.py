@@ -224,28 +224,27 @@ class Deduper:
         self.config = config
 
     def dedup(self, minsize=3):
-        while True:
-            prefix_to_keys = defaultdict(set)
-            key_to_remove = defaultdict(list)
-            prefix_and_key_to_group_name = dict()
-            for match, item, group in self.matching():
-                key = item.name[match.end():], item.value
-                prefix = match.group()
-                prefix_to_keys[prefix].add(key)
-                prefix_and_key_to_group_name[prefix, key] = group.name
-                key_to_remove[key].append(partial(self.remove, group, item))
+        prefix_to_keys = defaultdict(set)
+        removes = dict()
+        group_names = dict()
+        for match, item, group in self.matching():
+            key = item.name[match.end():], item.value
+            prefix = match.group()
+            prefix_to_keys[prefix].add(key)
+            group_names[prefix, key] = group.name
+            removes[prefix, key] = partial(self.remove, group, item)
 
-            by_first_letter = itertools.groupby(sorted(prefix_to_keys), key=lambda prefix:prefix[0])
-            lines_saved = partial(self.lines_saved, prefix_to_keys)
-            prefixes = max(itertools.chain.from_iterable(self.powerset(prefixes, 2) for _, prefixes in by_first_letter), key=lines_saved)
+        lines_saved = partial(self.lines_saved, prefix_to_keys)
+        for prefixes in sorted(self.prefix_groups(prefix_to_keys), key=lines_saved, reverse=True):
             keys = self.commonkeys(prefixes, prefix_to_keys)
             if len(keys) >= minsize and lines_saved(prefixes):
-                names = set(prefix_and_key_to_group_name[prefix, key] for prefix in prefixes for key in keys)
+                names = set(group_names[prefix, key] for prefix in prefixes for key in keys)
                 group = self.group(self.commonprefix(names), prefixes, keys)
                 self.groups[id(group)] = group
-                [func() for key in keys for func in key_to_remove[key]]
-                continue
-            return
+                for prefix in prefixes:
+                    prefix_to_keys[prefix].difference_update(keys)
+                    for key in keys:
+                        removes[prefix, key]()
 
     def group(self, name, prefixes, keys):
         prefix = self.commonprefix(prefixes)
@@ -267,7 +266,6 @@ class Deduper:
         if not group:
             del self.groups[group.name]
 
-
     @staticmethod
     def commonkeys(prefixes, prefix_to_keys):
         return set.intersection(*(prefix_to_keys[prefix] for prefix in prefixes))
@@ -286,6 +284,10 @@ class Deduper:
         "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
         s = list(iterable)
         return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
+
+    @classmethod
+    def prefix_groups(cls, prefixes, minsize=2):
+        return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in itertools.groupby(sorted(prefixes), key=lambda prefix:prefix[0:minsize]))
 
     pattern = re.compile(r'[a-z]+\d*(?=_)')
 
