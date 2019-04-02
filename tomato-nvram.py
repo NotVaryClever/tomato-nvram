@@ -219,6 +219,9 @@ import itertools
 import os.path
 import string
 class Deduper:
+    '''
+    Factor out common settings into loops.
+    '''
     def __init__(self, groups, config):
         self.groups = groups
         self.config = config
@@ -237,7 +240,7 @@ class Deduper:
 
         for prefixes in sorted(self.prefix_groups(prefix_to_keys), key=lines_saved, reverse=True):
             keys = self.commonkeys(prefixes, prefix_to_keys)
-            if len(keys) >= minsize and lines_saved(prefixes):
+            if len(keys) >= minsize and lines_saved(prefixes) > 0:
                 names = set(group_names[prefix, key] for prefix in prefixes for key in keys)
                 group = self.group(self.commonprefix(names), prefixes, keys)
                 self.groups[id(group)] = group
@@ -276,8 +279,12 @@ class Deduper:
 
     @classmethod
     def lines_saved(cls, prefix_to_keys, prefixes):
-        keys = cls.commonkeys(prefixes, prefix_to_keys)
-        return (len(prefixes) - 1) * len(keys) - 5
+        if len(prefixes) > 1:
+            keys = cls.commonkeys(prefixes, prefix_to_keys)
+            saved = (len(prefixes) - 1) * len(keys) - 5
+            if saved > 0:
+                return saved
+        return 0
 
     @staticmethod
     def powerset(iterable, start=0):
@@ -291,7 +298,7 @@ class Deduper:
         grouped = itertools.groupby(sorted(prefixes), key)
         return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in grouped)
 
-    pattern = re.compile(r'[a-z]+\d*(?=_)')
+    pattern = re.compile(r'([a-z]+_[a-z]+\d+)|[a-z]+\d*(?=_)')
 
 import base64
 import io
