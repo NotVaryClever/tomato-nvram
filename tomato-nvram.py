@@ -125,6 +125,16 @@ class Groups(defaultdict):
         groups = sorted(self.values(), key=lambda group: group.sort_key)
         return '\n'.join(group.formatted() for group in groups)
 
+    def scan(self, pattern):
+        '''
+        Yield (item, group, match) for each item whose name matches pattern.
+        '''
+        for group in self.values():
+            for item in group:
+                match = pattern.match(item.name)
+                if match:
+                    yield item, group, match
+
 class Group(list):
     '''
     Format a named group of items.
@@ -152,6 +162,15 @@ class Group(list):
         prefix = self.prefix + '\n' if self.prefix else ''
         suffix = self.suffix + '\n' if self.suffix else ''
         return '# {}\n{}{}{}{}'.format(self.name, prefix, ''.join(single), '\n'.join(multi), suffix)
+
+    @classmethod
+    def loop(cls, name, rank, prefixes, keys):
+        prefix = commonprefix(prefixes)
+        items = (Item('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
+        prefixes = ' '.join(sorted(prefixes))
+        return cls(name, rank, items,
+                   prefix='for {} in {}\ndo'.format(prefix, prefixes),
+                   suffix='done')
 
 import shlex
 class Item:
@@ -216,8 +235,6 @@ class Item:
 
 from functools import partial
 import itertools
-import os.path
-import string
 class Deduper:
     '''
     Factor out common settings into loops.
@@ -226,65 +243,46 @@ class Deduper:
         self.groups = groups
         self.config = config
 
-    def dedup(self, minsize=3):
-        prefix_to_keys = defaultdict(set)
-        removes = dict()
-        group_names = dict()
-        for item, group, match in self.matching():
-            key = item.name[match.end():], item.value
+        self.prefix_to_keys = defaultdict(set)
+        self.group_names = dict()
+        self.cleanup = dict()
+        for item, group, match in groups.scan(self.prefix_pattern):
             prefix = match.group()
-            prefix_to_keys[prefix].add(key)
-            group_names[prefix, key] = group.name
-            removes[prefix, key] = partial(self.remove, group, item)
-        lines_saved = partial(self.lines_saved, prefix_to_keys)
+            key = item.name[match.end():], item.value
+            self.prefix_to_keys[prefix].add(key)
+            self.group_names[prefix, key] = group.name
+            self.cleanup[prefix, key] = partial(self.remove_item, item, group, groups)
 
-        for prefixes in sorted(self.prefix_groups(prefix_to_keys), key=lines_saved, reverse=True):
-            keys = self.commonkeys(prefixes, prefix_to_keys)
-            if len(keys) >= minsize and lines_saved(prefixes) > 0:
-                names = set(group_names[prefix, key] for prefix in prefixes for key in keys)
-                group = self.group(self.commonprefix(names), prefixes, keys)
-                self.groups[id(group)] = group
-                for prefix in prefixes:
-                    prefix_to_keys[prefix].difference_update(keys)
-                    for key in keys:
-                        removes[prefix, key]()
+    def commonkeys(self, prefixes):
+        return set.intersection(*(self.prefix_to_keys[prefix] for prefix in prefixes))
 
-    def group(self, name, prefixes, keys):
-        prefix = self.commonprefix(prefixes)
-        items = (Item('${{{}}}{}'.format(prefix, suffix), value) for suffix, value in keys)
-        prefixes = ' '.join(sorted(prefixes))
-        return Group(name, self.config.rank[name], items,
-                     prefix='for {} in {}\ndo'.format(prefix, prefixes),
-                     suffix='done')
+    def dedup(self, minsize=3):
+        for prefixes, keys in self.to_factor(minsize):
+            name = commonprefix(self.group_names[prefix, key] for prefix in prefixes for key in keys)
+            group = Group.loop(name, self.config.rank[name], prefixes, keys)
+            self.groups[id(group)] = group
+            self.remove(prefixes, keys)
 
-    def matching(self):
-        for group in self.groups.values():
-            for item in group:
-                match = self.pattern.match(item.name)
-                if match:
-                    yield item, group, match
-
-    def remove(self, group, item):
-        group.remove(item)
-        if not group:
-            del self.groups[group.name]
-
-    @staticmethod
-    def commonkeys(prefixes, prefix_to_keys):
-        return set.intersection(*(prefix_to_keys[prefix] for prefix in prefixes))
-
-    @staticmethod
-    def commonprefix(names):
-        return os.path.commonprefix(list(names)).strip(string.punctuation + string.whitespace)
-
-    @classmethod
-    def lines_saved(cls, prefix_to_keys, prefixes):
+    def lines_saved(self, prefixes):
         if len(prefixes) > 1:
-            keys = cls.commonkeys(prefixes, prefix_to_keys)
+            keys = self.commonkeys(prefixes)
             saved = (len(prefixes) - 1) * len(keys) - 5
             if saved > 0:
                 return saved
         return 0
+
+    def remove(self, prefixes, keys):
+        for prefix in prefixes:
+            self.prefix_to_keys[prefix].difference_update(keys)
+            for key in keys:
+                self.cleanup[prefix, key]()
+
+    def to_factor(self, minsize=3):
+        prefix_groups = self.prefix_groups(self.prefix_to_keys)
+        for prefixes in sorted(prefix_groups, key=self.lines_saved, reverse=True):
+            keys = self.commonkeys(prefixes)
+            if len(keys) >= minsize and self.lines_saved(prefixes) > 0:
+                yield prefixes, keys
 
     @staticmethod
     def powerset(iterable, start=0):
@@ -298,7 +296,18 @@ class Deduper:
         grouped = itertools.groupby(sorted(prefixes), key)
         return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in grouped)
 
-    pattern = re.compile(r'([a-z]+_[a-z]+\d+)|[a-z]+\d*(?=_)')
+    @staticmethod
+    def remove_item(item, group, groups):
+        group.remove(item)
+        if not group:
+            del groups[group.name]
+
+    prefix_pattern = re.compile(r'([a-z]+_[a-z]+\d+)|[a-z]+\d*(?=_)')
+
+import os.path
+import string
+def commonprefix(names):
+    return os.path.commonprefix(list(names)).strip(string.punctuation + string.whitespace)
 
 import base64
 import io
