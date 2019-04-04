@@ -182,7 +182,7 @@ class Item:
         self.value = value
         self.__key = name, value
 
-        parts = re.split('_|:', name)
+        parts = self.name_break.split(name)
         self.prefix = parts[0] if len(parts) > 1 else re.match('[a-z]*', name).group()
         self.suffix = parts[-1]
         self.group = self.capitalize(self.prefix)
@@ -239,6 +239,7 @@ class Item:
 
     special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
     list_break = re.compile(r'(?<=>)(?!$)')         # Where to break tomato lists
+    name_break = re.compile(r'_|:')                 # Where to break names
 
 from functools import partial
 import itertools
@@ -270,13 +271,18 @@ class Deduper:
             self.groups[id(group)] = group
             self.remove(prefixes, keys)
 
-    def lines_saved(self, prefixes):
+    def lines_saved(self, prefixes, keys=None):
         if len(prefixes) > 1:
-            keys = self.commonkeys(prefixes)
+            keys = keys or self.commonkeys(prefixes)
             saved = (len(prefixes) - 1) * len(keys) - 5
             if saved > 0:
                 return saved
         return 0
+
+    def prefix_groups(self, minsize=2):
+        grouped = itertools.groupby(sorted(self.prefix_to_keys), key=lambda item: item[0:minsize])
+        powerset = itertools.chain.from_iterable(self.powerset(prefixes, 2) for _, prefixes in grouped)
+        return filter(self.lines_saved, powerset)
 
     def remove(self, prefixes, keys):
         for prefix in prefixes:
@@ -285,10 +291,9 @@ class Deduper:
                 self.cleanup[prefix, key]()
 
     def to_factor(self, minsize=3):
-        prefix_groups = self.prefix_groups(self.prefix_to_keys)
-        for prefixes in sorted(prefix_groups, key=self.lines_saved, reverse=True):
+        for prefixes in sorted(self.prefix_groups(), key=self.lines_saved, reverse=True):
             keys = self.commonkeys(prefixes)
-            if len(keys) >= minsize and self.lines_saved(prefixes) > 0:
+            if len(keys) >= minsize and self.lines_saved(prefixes, keys) > 0:
                 yield prefixes, keys
 
     @staticmethod
@@ -296,12 +301,6 @@ class Deduper:
         "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
         s = list(iterable)
         return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
-
-    @classmethod
-    def prefix_groups(cls, prefixes, minsize=2):
-        key = lambda item: item[0:minsize]
-        grouped = itertools.groupby(sorted(prefixes), key)
-        return itertools.chain.from_iterable(cls.powerset(prefixes, 2) for _, prefixes in grouped)
 
     @staticmethod
     def remove_item(item, group, groups):
