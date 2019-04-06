@@ -221,13 +221,20 @@ class Item:
 
     @classmethod
     def quoted(cls, value):
+        # Use double quotes with an initial newline if value contains newlines.
+        if '\n' in value and not cls.special_chars.search(value):
+            return '"\\\n{}"'.format(value)
+            
+        # Format tomato lists in double quotes, one item per line.
+        list, found = cls.list_break.subn('\\\n', value)
+        if found and not cls.special_chars.search(value):
+            return '"\\\n{}"'.format(list)
+
+        # Use double quotes if value contains a single quote.
         if "'" in value:
             return '"{}"'.format(cls.special_chars.sub(r'\\\g<0>', value))
-        if not cls.special_chars.search(value):
-            if cls.list_break.search(value) and '\n' not in value:
-                return '"\\\n{}"'.format(cls.list_break.sub('\\\n', value))
-            if '\n' in value:
-                return '"\\\n{}"'.format(value)
+
+        # Otherwise let shlex.quote handle it with single quotes.
         return shlex.quote(value) if value else value
 
     special_chars = re.compile(r'["\\`]|\$(?=\S)')  # Require escaping in double quotes
