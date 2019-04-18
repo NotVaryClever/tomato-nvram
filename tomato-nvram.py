@@ -98,7 +98,7 @@ class Groups(defaultdict):
         self.config = config
         for item in items:
             item = Item(*item)
-            self[config.group(item)].append(item)
+            self[config.groupname(item)].append(item)
 
     def __missing__(self, key):
         return self.setdefault(key, Group(key, self.config.rank[key]))
@@ -185,7 +185,6 @@ class Item:
         parts = self.name_break.split(name)
         self.prefix = parts[0] if len(parts) > 1 else re.match('[a-z]*', name).group()
         self.suffix = parts[-1]
-        self.group = self.capitalize(self.prefix)
 
         self.command = 'nvram set {}={}'.format(name, self.quoted(value))
         self.newlines = self.command.count('\n')
@@ -215,9 +214,11 @@ class Item:
         else:
             return '{}\n'.format(self.command)
 
-    @staticmethod
-    def capitalize(part):
-        return part.capitalize() if len(part) > 4 else part.upper()
+    def groupname(self):
+        if len(self.prefix) <= 4:
+            return self.prefix.upper()
+        else:
+            return self.prefix.capitalize()
 
     @classmethod
     def quoted(cls, value):
@@ -360,9 +361,9 @@ class Config:
         self.rank = defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
         self.rank['Other'] = len(self.rank) + 1
 
-    def group(self, item):
+    def groupname(self, item):
         match = self.lookup.match(item.name)
-        return self.names[match.lastindex - 1] if match else item.group
+        return self.names[match.lastindex - 1] if match else item.groupname()
 
     def collapsible(self, group):
         return group.rank == len(self.names)
@@ -374,10 +375,10 @@ class Config:
 import argparse
 parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('-i', '--input', default='nvram.txt', help='input filename')
-parser.add_argument('-b', '--base', default='defaults.txt', help='base filename')
+parser.add_argument('-i', '--input',  default='nvram.txt',    help='input filename')
+parser.add_argument('-b', '--base',   default='defaults.txt', help='base filename')
 parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
-parser.add_argument('-c', '--config', default='config.ini', help='config filename')
+parser.add_argument('-c', '--config', default='config.ini',   help='config filename')
 
 def main(args):
     # Parse arguments.
