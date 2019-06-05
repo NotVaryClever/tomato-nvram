@@ -1,6 +1,6 @@
 # tomato-nvram
 
-Find the tomato settings changed, pretty-print the output.
+Find the tomato settings changed. Pretty-print the output.
 
 Takes the current nvram dump, `nvram.txt`:
 
@@ -53,6 +53,10 @@ wan3_get_dns=
 Generates a readable shell script from the difference, `set-nvram.sh`:
 ```
 ...
+
+# LAN
+nvram set lan_ipaddr=192.168.123.1
+
 # Wireless (2.4 GHz)
 nvram set wl0_bw_cap=1
 nvram set wl0_channel=1
@@ -74,8 +78,8 @@ Requires: Python 3.x
 
 **Save** the current settings as **`nvram.txt`**, from _Administration&rarr;Debugging&rarr;Download NVRAM Dump_ in the Tomato web UI, in the same directory as `tomato-nvram.py`.
 
-**Reset** the router's NVRAM, try to ensure that *all* the default settings have been saved, this is how I do it:
-* Erase all data in NVRAM, wait for the router to boot.
+**Reset** the router's NVRAM. Try to ensure that *all* the default settings have been set. This is how I do it:
+* Erase all data in NVRAM. Wait for the router to boot.
 * Reboot (because on my RT-AC66U, the 5 GHz radio doesn't show up otherwise).
 * Click Save without changing anything on at least these sections:
   * _Basic&rarr;Network_
