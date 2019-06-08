@@ -246,7 +246,7 @@ from functools import partial
 import itertools
 class Deduper:
     '''
-    Factor out common settings into loops.
+    Factor out duplicate settings into loops.
     '''
     def __init__(self, groups, config):
         self.groups = groups
@@ -282,7 +282,7 @@ class Deduper:
 
     def prefix_groups(self, minsize=2):
         grouped = itertools.groupby(sorted(self.prefix_to_keys), key=lambda item: item[0:minsize])
-        powerset = itertools.chain.from_iterable(self.powerset(prefixes, 2) for _, prefixes in grouped)
+        powerset = itertools.chain.from_iterable(self.powerset(prefixes, minsize=2) for _, prefixes in grouped)
         return filter(self.lines_saved, powerset)
 
     def remove(self, prefixes, keys):
@@ -298,10 +298,10 @@ class Deduper:
                 yield prefixes, keys
 
     @staticmethod
-    def powerset(iterable, start=0):
+    def powerset(iterable, minsize=0):
         "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
         s = list(iterable)
-        return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(start, len(s)+1))
+        return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(minsize, len(s)+1))
 
     @staticmethod
     def remove_item(item, group, groups):
