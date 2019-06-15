@@ -78,6 +78,9 @@ def write_script(items, outfile, config):
     # Dedup repeated settings.
     groups.dedup()
 
+    # Preamble
+    outfile.write('#!/bin/sh\n\n')
+
     # Write groups.
     outfile.write(groups.formatted())
 
