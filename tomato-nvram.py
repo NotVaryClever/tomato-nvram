@@ -6,7 +6,7 @@ import re
 ignore_names = re.compile(r'''
 http_id         # HTTP ID
 |os_\w+         # OS Values
-|\w+_cache      # Cache
+|ddnsx\d_cache  # DDNS Cache
 ''', re.VERBOSE)
 
 def keep_item(item):
