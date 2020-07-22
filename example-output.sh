@@ -6,9 +6,6 @@ nvram set router_name=Example
 nvram set wan_domain=example.com
 nvram set wan_hostname=example
 
-# WAN
-nvram set wan_lease=71749
-
 # LAN
 nvram set lan_ipaddr=192.168.123.1
 
@@ -87,13 +84,6 @@ nvram set log_mark=0
 nvram set tomatoanon_answer=1
 nvram set tomatoanon_enable=1
 nvram set tomatoanon_id=0123456789
-
-# Scripts
-nvram set script_fire="\
-# Suppress wireless log chatter
-dhd -i eth1 msglevel 0x0000
-dhd -i eth2 msglevel 0x0000
-dhd -i eth3 msglevel 0x0000"
 
 # Save
 nvram commit
