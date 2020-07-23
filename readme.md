@@ -2,7 +2,7 @@
 
 Find the tomato settings changed. Pretty-print the output.
 
-Takes the current nvram dump, `nvram.txt`:
+Takes the **current nvram** dump, `nvram.txt`:
 
 ```
 ...
@@ -27,7 +27,7 @@ wan3_get_dns=
 ...
 ```
 
-Compares it against an nvram dump of the defaults, `defaults.txt`:
+Compares it against an **nvram** dump of the **defaults**, `defaults.txt`:
 ```
 ...
 lan_route=
@@ -50,7 +50,7 @@ wan3_get_dns=
 ...
 ```
 
-Generates a readable shell script from the difference, `set-nvram.sh`:
+**Generates** a readable shell script from the **difference**, `set-nvram.sh`:
 ```
 ...
 
