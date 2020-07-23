@@ -93,3 +93,5 @@ Requires: Python 3.x
 $ ./tomato-nvram.py
 102 settings written to set-nvram.sh
 ```
+
+**View/Edit** output `set-nvam.sh` to choose which settings to reapply.
