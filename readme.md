@@ -72,6 +72,8 @@ nvram set wl1_radio=0
 ...
 ```
 
+- - -
+
 ## Use
 
 Requires: Python 3.x
@@ -95,3 +97,23 @@ $ ./tomato-nvram.py
 ```
 
 **View/Edit** output `set-nvam.sh` to choose which settings to reapply.
+
+- - -
+
+## Optional Arguments
+
+    $ ./tomato-nvram.py --help
+    usage: tomato-nvram.py [-h] [-i INPUT] [-b BASE] [-o OUTPUT] [-c CONFIG] [--linux]
+    
+    Generate NVRAM setting shell script.
+    
+    optional arguments:
+      -h, --help            show this help message and exit
+      -i INPUT, --input INPUT
+                            input filename (default: nvram.txt)
+      -b BASE, --base BASE  base filename (default: defaults.txt)
+      -o OUTPUT, --output OUTPUT
+                            output filename (default: set-nvram.sh)
+      -c CONFIG, --config CONFIG
+                            config filename (default: config.ini)
+      --linux               output linux line endings (default: False)
