@@ -96,7 +96,7 @@ $ ./tomato-nvram.py
 102 settings written to set-nvram.sh
 ```
 
-**View/Edit** output `set-nvam.sh` to choose which settings to reapply.
+**View/Edit** output file `set-nvram.sh` to choose which settings to reapply.
 
 - - -
 
