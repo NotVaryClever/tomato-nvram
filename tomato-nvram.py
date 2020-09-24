@@ -56,7 +56,7 @@ def diff_files(input_name, base_name):
     else:
         return dict(input)
 
-def write_script(items, outfile, config, erase=False):
+def write_script(items, outfile, config, erase=False, reboot=False):
     '''
     Write items to outfile in the form:
 
@@ -94,6 +94,10 @@ def write_script(items, outfile, config, erase=False):
 
     # Commit
     outfile.write('\n# Save\nnvram commit\n')
+
+    # Reboot
+    if reboot:
+        outfile.write('\n# Reboot\nreboot\n')
 
 from collections import defaultdict
 class Groups(defaultdict):
@@ -387,6 +391,7 @@ parser.add_argument('-b', '--base',   default='defaults.txt', help='base filenam
 parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
 parser.add_argument('-c', '--config', default='config.ini',   help='config filename')
 parser.add_argument(      '--erase',  action='store_true',    help='erase nvram first')
+parser.add_argument(      '--reboot', action='store_true',    help='reboot after')
 parser.add_argument(      '--linux',  action='store_true',    help='output linux line endings')
 
 def main(args):
@@ -408,7 +413,7 @@ def main(args):
 
         # Write output script.
         with open(args.output, 'w', newline='\n' if args.linux else None) as outfile:
-            write_script(diff, outfile, config, args.erase)
+            write_script(diff, outfile, config, args.erase, args.reboot)
 
         print('{:,} settings written to {}'.format(len(diff), args.output))
 
