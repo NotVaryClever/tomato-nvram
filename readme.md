@@ -98,6 +98,15 @@ $ ./tomato-nvram.py
 
 **View/Edit** output file `set-nvram.sh` to choose which settings to reapply.
 
+**Reapply** settings over SSH:
+```
+> "C:\Program Files\PuTTY\plink.exe" -ssh root@192.168.1.1 -pw admin -m set-nvram.sh
+```
+Or
+```
+$ ssh root@192.168.1.1 'sh -s' < set-nvram.sh
+```
+
 - - -
 
 ## Optional Arguments
