@@ -56,7 +56,7 @@ def diff_files(input_name, base_name):
     else:
         return dict(input)
 
-def write_script(items, outfile, config):
+def write_script(items, outfile, config, erase=False):
     '''
     Write items to outfile in the form:
 
@@ -80,6 +80,10 @@ def write_script(items, outfile, config):
 
     # Preamble
     outfile.write('#!/bin/sh\n\n')
+
+    # Erase
+    if erase:
+        outfile.write('# Erase\nnvram erase\n\n')
 
     # Write groups.
     outfile.write(groups.formatted())
@@ -382,6 +386,7 @@ parser.add_argument('-i', '--input',  default='nvram.txt',    help='input filena
 parser.add_argument('-b', '--base',   default='defaults.txt', help='base filename')
 parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
 parser.add_argument('-c', '--config', default='config.ini',   help='config filename')
+parser.add_argument(      '--erase',  action='store_true',    help='erase nvram first')
 parser.add_argument(      '--linux',  action='store_true',    help='output linux line endings')
 
 def main(args):
@@ -402,9 +407,8 @@ def main(args):
         config = Config(args.config)
 
         # Write output script.
-
         with open(args.output, 'w', newline='\n' if args.linux else None) as outfile:
-            write_script(diff, outfile, config)
+            write_script(diff, outfile, config, args.erase)
 
         print('{:,} settings written to {}'.format(len(diff), args.output))
 
