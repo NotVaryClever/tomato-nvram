@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-
+'''Generate NVRAM setting shell script.
+'''
 import re
 
 # Names to ignore
@@ -384,7 +385,7 @@ class Config:
         return self.rank[self.names[match.lastindex - 1]] if match else len(self.names)
 
 import argparse
-parser = argparse.ArgumentParser(description='Generate NVRAM setting shell script.',
+parser = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('-i', '--input',  default='nvram.txt',    help='input filename')
 parser.add_argument('-b', '--base',   default='defaults.txt', help='base filename')
