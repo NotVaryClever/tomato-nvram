@@ -92,7 +92,7 @@ Requires: Python 3.x
 
 **Run** `tomato-nvram.py`:
 ```
-$ ./tomato-nvram.py
+$ python3 tomato-nvram.py
 102 settings written to set-nvram.sh
 ```
 
@@ -111,7 +111,7 @@ $ ssh root@192.168.1.1 'sh -s' < set-nvram.sh
 
 ## Options
 
-    $ ./tomato-nvram.py --help
+    $ python3 tomato-nvram.py --help
     usage: tomato-nvram.py [-h] [-i INPUT] [-b BASE] [-o OUTPUT] [-c CONFIG] [-e ENCODING] [--erase] [--reboot] [--linux]
 
     Generate NVRAM setting shell script.
