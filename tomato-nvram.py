@@ -41,15 +41,15 @@ def parse_nvram_txt(nvram_txt):
     _, *namevalues = nvram_txt_split.split(nvram_txt)
     return filter(keep_item, zip(*[iter(namevalues)] * 2))
 
-def diff_files(input_name, base_name):
+def diff_files(input_name, base_name, encoding=None):
     '''
     Return a mapping of items in input_name but not base_name.
     '''
-    with open(input_name) as infile:
+    with open(input_name, encoding=encoding) as infile:
         input = parse_nvram_txt(infile.read())
 
     if base_name:
-        with open(base_name) as infile:
+        with open(base_name, encoding=encoding) as infile:
             base = parse_nvram_txt(infile.read())
     
         return dict(set(input).difference(base))
@@ -365,9 +365,9 @@ class Config:
     '''
     Group configuration from config.ini.
     '''
-    def __init__(self, filename):
+    def __init__(self, filename, encoding=None):
         parser = configparser.ConfigParser()
-        parser.read(filename)
+        parser.read(filename, encoding=encoding)
         self.names, patterns = zip(*((name, section['pattern']) for name, section in parser.items() if 'pattern' in section))
         self.lookup = re.compile('|'.join('({})'.format(pattern) for pattern in patterns))
         self.rank = defaultdict(lambda: len(self.names), ((name, i) for i, name in enumerate(self.names)))
@@ -387,13 +387,14 @@ class Config:
 import argparse
 parser = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('-i', '--input',  default='nvram.txt',    help='input filename')
-parser.add_argument('-b', '--base',   default='defaults.txt', help='base filename')
-parser.add_argument('-o', '--output', default='set-nvram.sh', help='output filename')
-parser.add_argument('-c', '--config', default='config.ini',   help='config filename')
-parser.add_argument(      '--erase',  action='store_true',    help='erase nvram first')
-parser.add_argument(      '--reboot', action='store_true',    help='reboot after')
-parser.add_argument(      '--linux',  action='store_true',    help='output linux line endings')
+parser.add_argument('-i', '--input',    default='nvram.txt',    help='input filename')
+parser.add_argument('-b', '--base',     default='defaults.txt', help='base filename')
+parser.add_argument('-o', '--output',   default='set-nvram.sh', help='output filename')
+parser.add_argument('-c', '--config',   default='config.ini',   help='config filename')
+parser.add_argument('-e', '--encoding', default='latin-1',      help='file encoding')
+parser.add_argument(      '--erase',    action='store_true',    help='erase nvram first')
+parser.add_argument(      '--reboot',   action='store_true',    help='reboot after')
+parser.add_argument(      '--linux',    action='store_true',    help='output linux line endings')
 
 def main(args):
     # Parse arguments.
@@ -401,7 +402,7 @@ def main(args):
 
     try:
         # Diff files.
-        diff = diff_files(args.input, args.base)
+        diff = diff_files(args.input, args.base, encoding=args.encoding)
     
     except FileNotFoundError as error:
         print(error)
@@ -410,10 +411,10 @@ def main(args):
 
     if diff:
         # Load conifg.
-        config = Config(args.config)
+        config = Config(args.config, encoding=args.encoding)
 
         # Write output script.
-        with open(args.output, 'w', newline='\n' if args.linux else None) as outfile:
+        with open(args.output, 'w', newline='\n' if args.linux else None, encoding=args.encoding) as outfile:
             write_script(diff, outfile, config, args.erase, args.reboot)
 
         print('{:,} settings written to {}'.format(len(diff), args.output))

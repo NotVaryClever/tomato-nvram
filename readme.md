@@ -109,14 +109,14 @@ $ ssh root@192.168.1.1 'sh -s' < set-nvram.sh
 
 - - -
 
-## Optional Arguments
+## Options
 
     $ ./tomato-nvram.py --help
-    usage: tomato-nvram.py [-h] [-i INPUT] [-b BASE] [-o OUTPUT] [-c CONFIG] [--erase] [--reboot] [--linux]
-    
+    usage: tomato-nvram.py [-h] [-i INPUT] [-b BASE] [-o OUTPUT] [-c CONFIG] [-e ENCODING] [--erase] [--reboot] [--linux]
+
     Generate NVRAM setting shell script.
-    
-    optional arguments:
+
+    options:
       -h, --help            show this help message and exit
       -i INPUT, --input INPUT
                             input filename (default: nvram.txt)
@@ -125,6 +125,8 @@ $ ssh root@192.168.1.1 'sh -s' < set-nvram.sh
                             output filename (default: set-nvram.sh)
       -c CONFIG, --config CONFIG
                             config filename (default: config.ini)
+      -e ENCODING, --encoding ENCODING
+                            file encoding (default: latin-1)
       --erase               erase nvram first (default: False)
       --reboot              reboot after (default: False)
       --linux               output linux line endings (default: False)
