@@ -76,7 +76,7 @@ nvram set wl1_radio=0
 
 ## Use
 
-Requires: Python 3.x
+Requires: [Python 3.3+](https://www.python.org/downloads/)
 
 **Save** the current settings as **`nvram.txt`**, from _Administration&rarr;Debugging&rarr;Download NVRAM Dump_ in the Tomato web UI, in the same directory as `tomato-nvram.py`.
 
